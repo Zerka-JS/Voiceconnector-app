@@ -1,5 +1,7 @@
 """Audio système du mode autonome : conversions, correspondance des sources, moteur simulé."""
 
+import sys
+
 import pytest
 
 from core import system_audio as sa
@@ -90,8 +92,24 @@ def test_factory_never_raises_off_windows(monkeypatch):
     monkeypatch.setattr(sa.sys, "platform", "linux")
     audio = create_system_audio({})
     assert isinstance(audio, NullSystemAudio) and not audio.available
-    monkeypatch.setattr(sa.sys, "platform", "win32")          # pycaw absent ici : repli sans exception
-    assert not create_system_audio({}).available
+    # Windows sans pycaw : on bloque l'import de comtypes, qu'il soit installé ou non
+    monkeypatch.setattr(sa.sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "comtypes", None)
+    fallback = create_system_audio({})
+    assert isinstance(fallback, NullSystemAudio) and not fallback.available
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Core Audio : Windows seulement")
+def test_real_windows_engine_reads_without_raising():
+    """Lecture seule (aucun réglage modifié) : sur un poste sans carte son, comme le runner de CI,
+    ou avec une vraie, le moteur Windows ne lève jamais d'exception."""
+    audio = create_system_audio({})
+    if not audio.available:
+        pytest.skip("pycaw indisponible sur ce poste")
+    assert isinstance(audio, sa.WindowsSystemAudio)
+    assert isinstance(audio.app_states(), dict)
+    for kind in (sa.SOURCE_MASTER, sa.SOURCE_CAPTURE):
+        assert isinstance(audio.endpoint_state(kind), SourceState)
 
 
 def test_module_has_no_qt_dependency():
