@@ -1,1 +1,2 @@
-by Zerka on 2026
+by Zerka 
+on the base of Reka audio project
