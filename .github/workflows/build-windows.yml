@@ -57,7 +57,28 @@ jobs:
       - name: Dépendances Python
         run: python -m pip install -r requirements.txt pytest
       - name: Tests (dont masquage de fenêtres Win32)
-        run: python -m pytest -q tests
+        run: |
+          set -o pipefail
+          python -m pytest -q -ra --tb=short tests 2>&1 | tee pytest.log
+      - name: Détail des tests en échec (annotations)
+        if: failure()
+        run: |
+          python - <<'PY'
+          # Les journaux bruts ne se lisent que sur le site GitHub : on remonte aussi les
+          # échecs sous forme d'annotations, visibles dans le résumé de l'exécution et par l'API.
+          import pathlib, re
+          log = pathlib.Path("pytest.log").read_text(encoding="utf-8", errors="replace")
+          def annotate(title, text):
+              text = text.strip()[:3500]
+              text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::error title={title}::{text}")
+          head, _, summary = log.partition("short test summary info")
+          annotate("Resume pytest", summary or log[-3000:])
+          parts = re.split(r"^_{3,} (.+?) _{3,}$", head, flags=re.M)
+          for name, body in list(zip(parts[1::2], parts[2::2]))[:8]:
+              tail = "\n".join(body.strip().splitlines()[-9:])
+              annotate("Echec " + re.sub(r"[^\w.\[\]-]", "_", name)[:60], name + "\n" + tail)
+          PY
       - name: Infos du build (mises à jour automatiques)
         run: |
           python - <<'PY'
