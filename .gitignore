@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+selftest/
+.pytest_cache/
+*.log
+voiceconnector/build_info.json

@@ -1,0 +1,98 @@
+{
+  "log_level": "INFO",
+  "setup_done": false,
+  "effects": {
+    "host": "reaper"
+  },
+  "voicemeeter": {
+    "path": "",
+    "kind": "potato",
+    "strip_maps": {
+      "potato": [0, 1, 5, 6, 2, 7],
+      "banana": [0, 1, 3, 4, 2]
+    },
+    "routing": [
+      {"label": "Monitor", "bus": "A1"},
+      {"label": "Mic Out", "bus": "B1"},
+      {"label": "Discord", "bus": "B2"},
+      {"label": "Obs", "bus": "A2"}
+    ],
+    "headphone_bus": "A1",
+    "poll_hz": 30,
+    "manage_insert": true,
+    "window_timeout_s": 20,
+    "login_timeout_s": 30,
+    "login_retry_s": 5,
+    "close_timeout_s": 8,
+    "terminate_on_exit": true,
+    "app_devices": [],
+    "buffer": 0,
+    "wdm_shared": false
+  },
+  "update": {
+    "check_on_start": true,
+    "interval_hours": 6,
+    "skipped_build": 0,
+    "url": ""
+  },
+  "reaper": {
+    "path": "",
+    "resource_path": "",
+    "template": "",
+    "project": "",
+    "ask_project_on_start": false,
+    "recent_projects": [],
+    "manage_routing": true,
+    "window_timeout_s": 60,
+    "bridge_timeout_s": 90,
+    "close_timeout_s": 10,
+    "terminate_on_exit": true
+  },
+  "flstudio": {
+    "path": "",
+    "project": "",
+    "inserts": [],
+    "window_timeout_s": 60,
+    "close_timeout_s": 60,
+    "terminate_on_exit": false
+  },
+  "apo": {
+    "config_dir": "",
+    "strips": []
+  },
+  "vst": {
+    "extra_dirs": []
+  },
+  "ui": {
+    "geometry": "",
+    "minimize_to_tray": false,
+    "background_image": "",
+    "background_darkness": 0.45,
+    "panel_opacity": 1.0,
+    "theme": "studio",
+    "pad_modes": [],
+    "strip_names": ["Microphone", "Musique", "Appels", "Bureau", "Autres 1", "Autres 2"]
+  },
+  "session": {
+    "mode": "voicemeeter",
+    "app": "auto",
+    "voice_app": "auto",
+    "voice_transport": {},
+    "voice_bus": {},
+    "vban": {"index": 0, "name": "VoiceConnector", "ip": "127.0.0.1", "port": 6980},
+    "profile": "",
+    "overrides": {},
+    "music_mode": false,
+    "detect_interval_s": 3
+  },
+  "layout": {
+    "preset": "standard",
+    "roles": {}
+  },
+  "flsync": {
+    "out_port": "VoiceConnector FL",
+    "in_port": "VoiceConnector VC",
+    "tracks": {"master": 0, "drums": 1, "synths": 2, "fx": 3, "mic": 4}
+  },
+  "state": {}
+}

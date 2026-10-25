@@ -1,0 +1,1045 @@
+"""
+VoiceConnector — point d'entrée.
+
+Séquence de démarrage :
+  1. Lecture de config.json (défauts + copie utilisateur dans %APPDATA%) ;
+     au premier lancement, menu de sélection de l'édition de Voicemeeter et
+     du moteur d'effets (REAPER, FL Studio, Equalizer APO ou aucun) ; si
+     demandé, choix du projet REAPER à ouvrir
+  2. Lancement + masquage de Voicemeeter (Potato ou Banana)
+  3. Moteur d'effets : REAPER (pont Lua installé, puis lancement + masquage
+     sur le projet) ou FL Studio (lancement + masquage) ; Equalizer APO et
+     « aucun » n'ont pas de processus à lancer
+  4. Login à l'API Remote de Voicemeeter (nouvel essai toutes les 5 s)
+  5. REAPER : attente du pont (battement de cœur)
+  6. Affichage de la fenêtre principale
+
+Les étapes 2 à 5 sont bloquantes : elles tournent dans un QThread pendant
+qu'un écran de chargement reste affiché et réactif.
+
+À la fermeture : sauvegarde de la config, arrêt propre des contrôleurs,
+puis arrêt des processus lancés par l'app.
+
+Options :
+  --demo            interface avec des moteurs simulés (sans Voicemeeter ni REAPER)
+  --host MOTEUR     en démo : moteur d'effets à simuler (reaper, flstudio, apo, none)
+  --mode MODE       a (Voicemeeter + application vocale) ou b (autonome, sans Voicemeeter) ; en
+                    démo, ou pour enregistrer le mode (il se règle aussi dans les Réglages)
+  --setup           ouvre le menu de sélection des moteurs avant de démarrer
+  --selftest IMAGE  rend la console en démo dans IMAGE puis quitte (vérif de build)
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import platform
+import sys
+import threading
+import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Callable
+
+from PySide6.QtCore import (QLockFile, QRectF, QThread, Qt, QtMsgType, QTimer, QUrl, Signal,
+                            qInstallMessageHandler)
+from PySide6.QtGui import QColor, QDesktopServices, QFontDatabase, QIcon, QPainter, QPixmap
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QSplashScreen
+
+from core import config
+from core.app_detector import AppDetector
+from core.app_volume import create_backend
+from core.detect_service import DetectService
+from core.process_manager import (AppNotInstalledError, OtherEditionRunningError, ProcessManager,
+                                  ProcessManagerError, StartupAborted,
+                                  installed_voicemeeter_kinds, reaper_project)
+from core.effects import HOST_NONE, HOST_REAPER, EffectsHost, create_host, host_kind
+from core.fl_sync import mido_available
+from core.layout_manager import MODE_STANDALONE, MODE_VOICEMEETER
+from core.session_coordinator import SessionCoordinator
+from core.session_mode import SessionSettings
+from core.standalone_ctrl import StandaloneMixer, create_standalone
+from core.updater import UpdateChecker, cleanup_previous, load_build_info
+from core.voicemeeter_ctrl import EDITIONS, VoicemeeterController, edition
+from ui import styles
+from ui.main_window import MainWindow, launch_restart
+
+log = logging.getLogger("voiceconnector")
+
+LOG_FORMAT = "%(asctime)s %(levelname)-7s [%(threadName)s] %(name)s : %(message)s"
+LOG_MAX_BYTES = 2 * 1024 * 1024
+LOG_BACKUPS = 3
+BRIDGE_PING_TIMEOUT_S = 1.0  # attente d'un battement de cœur du pont
+BRIDGE_RETRY_S = 0.5         # pause entre deux attentes
+STARTUP_CANCEL_WAIT_MS = 5000
+RESTART_WAIT_MS = 45000      # --restart : attente de la fin de l'instance précédente
+OLD_EXE_RETRY_MS = 20000     # après une mise à jour : nouvel essai de suppression de l'ancien exe
+SHOW_REQUEST_TIMEOUT_MS = 1500  # 2e lancement : demande à l'instance ouverte de s'afficher
+CLOSING_WAIT_MS = 20000      # 2e lancement pendant la fermeture de l'instance : on l'attend
+WINDOWS_APP_ID = "VoiceConnector.Console"
+MODE_ALIASES = {"a": MODE_VOICEMEETER, "b": MODE_STANDALONE,
+                MODE_VOICEMEETER: MODE_VOICEMEETER, MODE_STANDALONE: MODE_STANDALONE}
+
+
+# --------------------------------------------------------------------------- #
+# Journalisation et erreurs non gérées
+# --------------------------------------------------------------------------- #
+def setup_logging() -> Path:
+    """Logs dans %APPDATA%/VoiceConnector/app.log (rotation 3 × 2 Mo)."""
+    log_path = config.app_data_dir() / "app.log"
+    formatter = logging.Formatter(LOG_FORMAT)
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    file_handler = RotatingFileHandler(
+        log_path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    # En développement on double dans la console. Dans l'exe --windowed,
+    # sys.stderr vaut None : pas de console.
+    if sys.stderr is not None:
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        root.addHandler(console)
+    return log_path
+
+
+def apply_log_level(name: str) -> None:
+    level = logging.getLevelName(str(name).upper())
+    if not isinstance(level, int):
+        log.warning("log_level « %s » invalide, INFO conservé.", name)
+        return
+    logging.getLogger().setLevel(level)
+
+
+def install_exception_hooks() -> None:
+    """Toute exception non rattrapée (thread principal ou secondaire) finit
+    dans app.log au lieu de disparaître silencieusement."""
+
+    def main_hook(exc_type, exc, tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        log.critical("Exception non gérée", exc_info=(exc_type, exc, tb))
+
+    def thread_hook(args: threading.ExceptHookArgs) -> None:
+        name = args.thread.name if args.thread else "?"
+        log.critical("Exception non gérée dans le thread %s", name,
+                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = main_hook
+    threading.excepthook = thread_hook
+
+
+def qt_message_handler(mode: QtMsgType, _context, message: str) -> None:
+    """Redirige les messages internes de Qt vers le logging Python."""
+    level = {
+        QtMsgType.QtDebugMsg: logging.DEBUG,
+        QtMsgType.QtInfoMsg: logging.INFO,
+        QtMsgType.QtWarningMsg: logging.WARNING,
+        QtMsgType.QtCriticalMsg: logging.ERROR,
+        QtMsgType.QtFatalMsg: logging.CRITICAL,
+    }.get(mode, logging.INFO)
+    logging.getLogger("qt").log(level, message)
+
+
+def set_windows_app_id() -> None:
+    """Identifiant d'application Windows : la barre des tâches affiche notre
+    icône (et pas celle de python.exe en développement)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
+    except (AttributeError, OSError) as exc:
+        log.debug("AppUserModelID non défini : %s", exc)
+
+
+# --------------------------------------------------------------------------- #
+# Écran de chargement
+# --------------------------------------------------------------------------- #
+class SplashScreen(QSplashScreen):
+    """Logo VoiceConnector affiché pendant le lancement des moteurs audio."""
+
+    WIDTH, HEIGHT = 540, 310
+    LOGO_HEIGHT = 268
+
+    def __init__(self) -> None:
+        super().__init__(self._render())
+        font = QApplication.font()
+        font.setPixelSize(12)
+        self.setFont(font)
+
+    def set_status(self, text: str) -> None:
+        self.showMessage(text, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
+                         QColor("#4a6a7d"))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (API Qt)
+        # Un clic ferme un QSplashScreen par défaut : on l'ignore, sinon
+        # plus rien ne serait visible pendant le démarrage.
+        event.accept()
+
+    @classmethod
+    def _render(cls) -> QPixmap:
+        screen = QApplication.primaryScreen()
+        ratio = screen.devicePixelRatio() if screen else 1.0
+        pixmap = QPixmap(round(cls.WIDTH * ratio), round(cls.HEIGHT * ratio))
+        pixmap.setDevicePixelRatio(ratio)
+        pixmap.fill(QColor("#f4f9fb"))
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        logo = QPixmap(str(config.resource_path("assets/voiceconnector_logo.png")))
+        if not logo.isNull():
+            logo = logo.scaledToHeight(round(cls.LOGO_HEIGHT * ratio),
+                                       Qt.TransformationMode.SmoothTransformation)
+            logo.setDevicePixelRatio(ratio)
+            width = logo.width() / ratio
+            painter.drawPixmap(QRectF((cls.WIDTH - width) / 2, 0, width, cls.LOGO_HEIGHT),
+                               logo, QRectF(logo.rect()))
+        else:  # ressource manquante : simple titre
+            title_font = QApplication.font()
+            title_font.setPixelSize(40)
+            painter.setFont(title_font)
+            painter.setPen(QColor(styles.GREEN_NEON))
+            painter.drawText(QRectF(0, 0, cls.WIDTH, cls.LOGO_HEIGHT),
+                             Qt.AlignmentFlag.AlignCenter, config.APP_NAME)
+
+        version_font = QApplication.font()
+        version_font.setPixelSize(10)
+        painter.setFont(version_font)
+        painter.setPen(QColor("#6f8a9b"))
+        painter.drawText(QRectF(0, 8, cls.WIDTH - 12, 16),
+                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+                         f"v{config.APP_VERSION}")
+        painter.drawText(QRectF(12, 8, cls.WIDTH - 24, 16),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+                         f"par {config.APP_AUTHORS}")
+        painter.setPen(QColor("#c5d6e0"))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(QRectF(0.5, 0.5, cls.WIDTH - 1, cls.HEIGHT - 1), 8, 8)
+        painter.end()
+        return pixmap
+
+
+# --------------------------------------------------------------------------- #
+# Démarrage des moteurs (thread de travail)
+# --------------------------------------------------------------------------- #
+class StartupTimeout(Exception):
+    def __init__(self, what: str, timeout_s: float, hint: str = "") -> None:
+        super().__init__(f"Pas de réponse de {what} après {timeout_s:.0f} s.")
+        self.hint = hint
+
+
+class StartupWorker(QThread):
+    """Lance Voicemeeter et le moteur d'effets puis attend qu'ils répondent.
+
+    Les contrôleurs sont créés dans le thread principal (affinité Qt) ; ce
+    thread n'appelle que leurs méthodes bloquantes de connexion.
+    """
+
+    progress = Signal(str)
+    failed = Signal(object)  # l'exception
+    succeeded = Signal()
+
+    def __init__(self, cfg: dict, processes: ProcessManager,
+                 vm: VoicemeeterController, host: EffectsHost,
+                 project: str | None = None) -> None:
+        super().__init__()
+        self._cfg = cfg
+        self._processes = processes
+        self._vm = vm
+        self._host = host
+        self._project = project       # None = projet par défaut de la config
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+        self._processes.abort_startup()
+
+    def run(self) -> None:
+        threading.current_thread().name = "startup"
+        try:
+            self._boot()
+        except StartupAborted:
+            log.info("Démarrage interrompu.")
+        except (ProcessManagerError, StartupTimeout) as exc:
+            log.error("Échec du démarrage : %s", exc)  # cas prévus, message explicite
+            self.failed.emit(exc)
+        except Exception as exc:  # imprévu : trace complète dans le journal
+            log.exception("Échec du démarrage")
+            self.failed.emit(exc)
+        else:
+            log.info("Moteurs prêts.")
+            self.succeeded.emit()
+
+    def _boot(self) -> None:
+        vm_cfg = self._cfg.setdefault("voicemeeter", {})
+        reaper_cfg = self._cfg.setdefault("reaper", {})
+        host = self._host
+
+        self.progress.emit("Lancement de Voicemeeter…")
+        self._processes.start_voicemeeter()
+
+        reused = False
+        if host.process_key == "reaper":
+            self.progress.emit("Lancement de REAPER…")
+            reused = self._processes.start_reaper(prepare=host.prepare_launch, project=self._project)
+        elif host.process_key == "flstudio":
+            self.progress.emit("Lancement de FL Studio…")
+            self._processes.start_flstudio()
+
+        self.progress.emit("Connexion à Voicemeeter…")
+        self._retry("l'API Remote de Voicemeeter", self._vm.login,
+                    timeout_s=float(vm_cfg.get("login_timeout_s", 30)),
+                    interval_s=float(vm_cfg.get("login_retry_s", 5)))
+
+        if host.kind != HOST_REAPER:
+            return             # les autres moteurs démarrent avec la fenêtre (thread UI)
+        self.progress.emit("Connexion à REAPER…")
+        host.start()
+        self._retry("REAPER", self._ping_reaper,
+                    timeout_s=float(reaper_cfg.get("bridge_timeout_s", 60)),
+                    interval_s=BRIDGE_RETRY_S,
+                    hint=("Au premier lancement, REAPER peut mettre une minute à analyser "
+                          "tes plugins : patiente puis clique sur « Réessayer ». "
+                          "Vérifie aussi qu'aucune fenêtre de REAPER (licence, message…) "
+                          "n'attend une réponse."))
+        if reused:
+            self._open_wanted_project()
+
+    def _open_wanted_project(self) -> None:
+        """REAPER restait ouvert (session précédente) : il n'a pas reçu le projet
+        voulu en argument, on l'ouvre maintenant s'il en a un autre."""
+        wanted = reaper_project(self._cfg, self._project)
+        current = self._host.project_path
+        if wanted is None:
+            return
+
+        def same(a: str | Path, b: str | Path) -> bool:
+            return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+        if not current or not same(current, wanted):
+            log.info("REAPER repris sur « %s » : ouverture du projet voulu (%s).",
+                     current or "sans projet", wanted)
+            self._host.open_project(wanted)
+
+    def _ping_reaper(self) -> None:
+        if not self._host.ping(timeout_s=BRIDGE_PING_TIMEOUT_S):
+            raise TimeoutError("le pont VoiceConnector ne répond pas encore")
+
+    def _retry(self, what: str, action: Callable[[], object], *,
+               timeout_s: float, interval_s: float, hint: str = "") -> None:
+        """Répète `action` jusqu'à ce qu'elle réussisse ou que le délai expire."""
+        deadline = time.monotonic() + timeout_s
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                action()
+                return
+            except (StartupAborted, ProcessManagerError):
+                raise                      # pas la peine d'insister (autre édition ouverte…)
+            except Exception as exc:
+                if time.monotonic() + interval_s > deadline:
+                    raise StartupTimeout(what, timeout_s, hint) from exc
+                log.info("En attente de %s (essai %d) : %s", what, attempt, exc)
+            if self._cancel.wait(interval_s):
+                raise StartupAborted()
+
+
+# --------------------------------------------------------------------------- #
+# Application
+# --------------------------------------------------------------------------- #
+class MixerApp:
+    """Orchestre démarrage, fenêtre principale et arrêt."""
+
+    def __init__(self, qt_app: QApplication, cfg: dict, log_path: Path) -> None:
+        self._qt = qt_app
+        self._cfg = cfg
+        self._log_path = log_path
+        self._processes = ProcessManager(cfg)
+        # Mode A (Voicemeeter + application vocale) ou B (autonome, sans Voicemeeter), puis logiciels
+        # audio détectés : la première détection décide du logiciel suivi et, en mode B, des canaux.
+        settings = SessionSettings(cfg)
+        self._standalone = settings.standalone
+        self._detector = DetectService(AppDetector(), settings.detect_interval_s)
+        self._session = SessionCoordinator(
+            cfg, host_kind=HOST_NONE if self._standalone else host_kind(cfg),
+            mode=MODE_STANDALONE if self._standalone else MODE_VOICEMEETER,
+            fl_sync_available=mido_available())
+        first = self._session.start(self._detector.scan_now())
+        self._vm: VoicemeeterController | StandaloneMixer
+        self._host: EffectsHost
+        if self._standalone:
+            profile = first.profile or self._session.standalone_profile()[0]
+            self._vm, self._host = create_standalone(cfg, profile)
+        else:
+            self._vm = VoicemeeterController(cfg)
+            self._host = create_host(cfg, self._processes)
+        self._updater = UpdateChecker(cfg, load_build_info())
+        self._splash = SplashScreen()
+        self._worker: StartupWorker | None = None
+        self._window: MainWindow | None = None
+        self._project: str | None = None   # None = projet par défaut
+        self._stopped = False
+
+    def start(self) -> None:
+        if self._standalone:
+            # Mode B : ni Voicemeeter ni moteur d'effets à lancer, la console s'ouvre tout de suite
+            self._splash.show()
+            self._splash.set_status("Démarrage…")
+            QTimer.singleShot(0, self._on_ready)
+            return
+        if (self._host.has_projects
+                and self._cfg.get("reaper", {}).get("ask_project_on_start", False)):
+            self._ask_project()
+        self._splash.show()
+        self._boot()
+
+    def _ask_project(self) -> None:
+        """Choix du projet REAPER avant de lancer les moteurs (option « demander
+        à chaque démarrage ») ; Annuler = projet par défaut."""
+        from ui.project_dialog import ProjectDialog
+
+        dialog = ProjectDialog(self._cfg, startup=True)
+        if dialog.exec():
+            self._project = dialog.selected
+            save_config_quietly(self._cfg)
+
+    # --------------------------------------------------------------- démarrage
+    def _boot(self) -> None:
+        self._splash.set_status("Démarrage…")
+        self._worker = StartupWorker(self._cfg, self._processes, self._vm, self._host,
+                                     project=self._project)
+        self._worker.progress.connect(self._splash.set_status)
+        self._worker.succeeded.connect(self._on_ready)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_ready(self) -> None:
+        try:
+            save_config_quietly(self._cfg)  # chemins auto-détectés mémorisés
+            self._window = MainWindow(cfg=self._cfg, vm=self._vm,
+                                      reaper=self._host, processes=self._processes,
+                                      apps=create_backend(self._cfg), updater=self._updater,
+                                      session=self._session, detector=self._detector)
+            if self._host.kind != HOST_REAPER:
+                self._host.start()    # FL Studio, Equalizer APO : dans le thread UI
+        except Exception as exc:
+            # Sans fenêtre, l'app tournerait à vide : on prévient et on quitte
+            log.exception("Impossible de créer la fenêtre principale")
+            self._splash.hide()
+            QMessageBox.critical(None, config.APP_NAME,
+                                 f"Impossible d'afficher la console :\n{exc}\n\n"
+                                 f"Détails dans le journal :\n{self._log_path}")
+            self._qt.quit()
+            return
+        self._window.show()
+        self._splash.finish(self._window)
+        # À partir d'ici, fermer la fenêtre principale quitte l'application
+        self._qt.setQuitOnLastWindowClosed(True)
+
+    def _on_failed(self, exc: Exception) -> None:
+        self._splash.hide()
+        if isinstance(exc, AppNotInstalledError):
+            retry = self._ask_missing_app(exc)
+        elif isinstance(exc, OtherEditionRunningError):
+            retry = self._ask_other_edition(exc)
+        else:
+            retry = self._ask_retry(exc)
+        if retry:
+            self._splash.show()
+            self._boot()
+        else:
+            self._qt.quit()
+
+    def _ask_missing_app(self, exc: AppNotInstalledError) -> bool:
+        """Popup « application introuvable » : télécharger, localiser ou réessayer."""
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(config.APP_NAME)
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        box.setText(
+            f"<b>{exc.app_name}</b> est introuvable sur ce PC.<br><br>"
+            f"Télécharge-le sur <a href='{exc.download_url}'>{exc.download_url}</a>, "
+            "installe-le, puis clique sur « Réessayer ».")
+        box.setInformativeText(
+            f"S'il est déjà installé ailleurs, clique sur « Localiser… » "
+            f"et sélectionne {exc.exe_name}.")
+        # REAPER / FL Studio absent : un autre moteur d'effets peut convenir
+        engines = None
+        if exc.config_key in ("reaper", "flstudio"):
+            engines = box.addButton("Changer de moteur d'effets…", QMessageBox.ButtonRole.ActionRole)
+        # Voicemeeter : une autre édition est peut-être installée (Banana seule…)
+        other = None
+        if exc.config_key == "voicemeeter":
+            current = edition(self._cfg).kind
+            others = [kind for kind in installed_voicemeeter_kinds(self._cfg["voicemeeter"].get("path"))
+                      if kind != current]
+            other = others[0] if others else None
+        switch = None
+        if other is not None:
+            name = EDITIONS[other].label.split(" (")[0]
+            box.setInformativeText(f"{name} est installé : VoiceConnector peut l'utiliser à la place.")
+            switch = box.addButton(f"Utiliser {name}", QMessageBox.ButtonRole.ActionRole)
+        download = box.addButton("Télécharger", QMessageBox.ButtonRole.ActionRole)
+        locate = box.addButton("Localiser…", QMessageBox.ButtonRole.ActionRole)
+        retry = box.addButton("Réessayer", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Quitter", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(switch or download)
+
+        while True:
+            box.exec()
+            clicked = box.clickedButton()
+            if switch is not None and clicked is switch:
+                self._switch_edition(other)
+                return False
+            if engines is not None and clicked is engines:
+                if self.choose_engines():
+                    self._relaunch("Moteur d'effets enregistré : relance VoiceConnector pour l'utiliser.")
+                    return False
+                continue
+            if clicked is download:
+                QDesktopServices.openUrl(QUrl(exc.download_url))
+                continue  # la popup reste là le temps d'installer
+            if clicked is locate:
+                path, _ = QFileDialog.getOpenFileName(
+                    None, f"Localiser {exc.exe_name}",
+                    os.environ.get("ProgramFiles", ""), "Exécutable (*.exe)")
+                if not path:
+                    continue
+                self._cfg.setdefault(exc.config_key, {})["path"] = path
+                save_config_quietly(self._cfg)
+                log.info("%s localisé manuellement : %s", exc.app_name, path)
+                return True
+            return clicked is retry
+
+    def _ask_other_edition(self, exc: OtherEditionRunningError) -> bool:
+        """Une autre édition de Voicemeeter est ouverte : l'utiliser, ou la fermer
+        soi-même puis réessayer."""
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(config.APP_NAME)
+        box.setText(str(exc))
+        box.setInformativeText(exc.hint)
+        switch = None
+        if exc.running_kind in EDITIONS:
+            name = EDITIONS[exc.running_kind].label.split(" (")[0]
+            switch = box.addButton(f"Utiliser {name}", QMessageBox.ButtonRole.ActionRole)
+        retry = box.addButton("Réessayer", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Quitter", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(switch or retry)
+        box.exec()
+        if switch is not None and box.clickedButton() is switch:
+            self._switch_edition(exc.running_kind)
+            return False
+        return box.clickedButton() is retry
+
+    def _switch_edition(self, kind: str) -> None:
+        """Passe VoiceConnector sur une autre édition de Voicemeeter : config, puis
+        redémarrage (les contrôleurs et le projet vierge en dépendent)."""
+        log.info("Passage sur l'édition %s de Voicemeeter.", kind)
+        self._cfg.setdefault("voicemeeter", {})["kind"] = kind
+        save_config_quietly(self._cfg)
+        self._relaunch("Édition enregistrée : relance VoiceConnector pour l'utiliser.")
+
+    def _relaunch(self, fallback_message: str) -> None:
+        if not launch_restart():
+            QMessageBox.information(None, config.APP_NAME, fallback_message)
+
+    def choose_engines(self, first_run: bool = False) -> bool:
+        """Menu de sélection de l'édition de Voicemeeter et du moteur d'effets.
+        True si l'utilisateur a validé (la config est alors enregistrée)."""
+        from ui.setup_dialog import SetupDialog
+
+        dialog = SetupDialog(self._cfg, first_run=first_run)
+        if not dialog.exec():
+            return False
+        save_config_quietly(self._cfg)
+        return True
+
+    def show_window(self) -> bool:
+        """VoiceConnector relancée alors qu'elle tourne déjà (cachée près de l'horloge…) :
+        on ré-affiche la fenêtre, ou ce qui est à l'écran pendant le démarrage
+        (écran de chargement, message d'erreur). False si l'app se ferme."""
+        if self._stopped:
+            return False
+        if self._window is not None:
+            self._window.show_from_tray()
+            return True
+        front = QApplication.activeModalWidget() or (self._splash if self._splash.isVisible() else None)
+        if front is not None:
+            front.raise_()
+            front.activateWindow()
+        return True
+
+    def _ask_retry(self, exc: Exception) -> bool:
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle(config.APP_NAME)
+        box.setText("Le démarrage a échoué.")
+        details = [str(exc) or type(exc).__name__]
+        hint = getattr(exc, "hint", "")
+        if hint:
+            details.append(hint)
+        details.append(f"Détails dans le journal :\n{self._log_path}")
+        box.setInformativeText("\n\n".join(details))
+        retry = box.addButton("Réessayer", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Quitter", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(retry)
+        box.exec()
+        return box.clickedButton() is retry
+
+    # ------------------------------------------------------------------ arrêt
+    def shutdown(self) -> None:
+        """Appelé une seule fois, sur QApplication.aboutToQuit."""
+        if self._stopped:
+            return
+        self._stopped = True
+        log.info("Arrêt en cours…")
+
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.cancel()
+            if not self._worker.wait(STARTUP_CANCEL_WAIT_MS):
+                log.warning("Le thread de démarrage ne s'est pas arrêté à temps.")
+
+        # Ordre important : REAPER se ferme pendant que Voicemeeter (donc le
+        # pilote ASIO de l'insert) tourne encore, sinon REAPER afficherait une
+        # erreur de carte son en partant.
+        _safely(self._host.close, save_project=True)     # sauvegarde du projet REAPER
+        _safely(self._vm.release)                         # inserts rendus
+        if self._host.process_key:
+            _safely(self._processes.stop, self._host.process_key)
+        _safely(self._vm.close, shutdown_app=self._processes.will_terminate("voicemeeter"))
+        # La fenêtre a écrit son état dans la config (closeEvent)
+        _safely(config.save_config, self._cfg)
+        _safely(self._processes.shutdown)
+
+
+def save_config_quietly(cfg: dict) -> bool:
+    """Sauvegarde la config sans jamais interrompre l'application : un fichier
+    verrouillé un instant (antivirus, sauvegarde) ne doit pas fermer VoiceConnector."""
+    try:
+        config.save_config(cfg)
+        return True
+    except OSError as exc:
+        log.error("Config non sauvegardée : %s", exc)
+        return False
+
+
+def _safely(func: Callable, *args, **kwargs) -> None:
+    """Exécute une étape d'arrêt sans qu'un échec n'empêche les suivantes."""
+    try:
+        func(*args, **kwargs)
+    except Exception:
+        log.exception("Erreur pendant l'arrêt (%s)", getattr(func, "__qualname__", func))
+
+
+# --------------------------------------------------------------------------- #
+# Point d'entrée
+# --------------------------------------------------------------------------- #
+def _instance_name() -> str:
+    """Nom du canal local entre deux lancements de VoiceConnector (propre à l'utilisateur)."""
+    user = os.environ.get("USERNAME") or os.environ.get("USER") or "user"
+    return f"{config.APP_NAME}-{user}-show"
+
+
+def request_show() -> bool:
+    """Demande à l'instance déjà ouverte de s'afficher ; True si elle a répondu
+    qu'elle s'affiche (False : pas d'instance, ou instance en train de se fermer)."""
+    if sys.platform == "win32":
+        # Windows ne laisse passer une fenêtre au premier plan que si le
+        # processus au premier plan (celui-ci, lancé par l'utilisateur) l'autorise
+        import ctypes
+        ctypes.windll.user32.AllowSetForegroundWindow(-1)   # ASFW_ANY
+    socket = QLocalSocket()
+    socket.connectToServer(_instance_name())
+    if not socket.waitForConnected(SHOW_REQUEST_TIMEOUT_MS):
+        return False
+    socket.write(b"show\n")
+    socket.waitForBytesWritten(SHOW_REQUEST_TIMEOUT_MS)
+    # La réponse peut déjà être arrivée (tube nommé Windows, lu en arrière-plan
+    # pendant l'écriture) : on lit ce qui est là avant d'attendre la suite
+    reply = bytes(socket.readAll())
+    deadline = time.monotonic() + SHOW_REQUEST_TIMEOUT_MS / 1000
+    while b"\n" not in reply and time.monotonic() < deadline:
+        socket.waitForReadyRead(100)
+        reply += bytes(socket.readAll())
+        if socket.state() == QLocalSocket.LocalSocketState.UnconnectedState and not socket.bytesAvailable():
+            break
+    socket.abort()
+    log.info("Instance déjà ouverte : réponse %r", reply)
+    return reply.startswith(b"ok")
+
+
+def listen_for_show_requests(on_show: Callable[[], bool]) -> QLocalServer:
+    server = QLocalServer()
+    server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
+    name = _instance_name()
+    if not server.listen(name):
+        QLocalServer.removeServer(name)     # canal resté d'une instance plantée
+        if not server.listen(name):
+            log.warning("Canal « afficher VoiceConnector » indisponible : %s", server.errorString())
+
+    def on_connection() -> None:
+        # Toute connexion vaut demande d'affichage (le message n'a pas d'autre sens)
+        while server.hasPendingConnections():
+            connection = server.nextPendingConnection()
+            connection.disconnected.connect(connection.deleteLater)
+            connection.write(b"ok\n" if on_show() else b"closing\n")
+            connection.flush()
+            connection.disconnectFromServer()
+
+    server.newConnection.connect(on_connection)
+    return server
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog=config.APP_NAME, add_help=False)
+    parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--host", choices=("reaper", "flstudio", "apo", "none"))
+    parser.add_argument("--mode", choices=tuple(MODE_ALIASES))
+    parser.add_argument("--setup", action="store_true")
+    parser.add_argument("--selftest", metavar="IMAGE")
+    parser.add_argument("--restart", action="store_true")  # relance depuis les réglages
+    args, _qt_args = parser.parse_known_args(argv[1:])
+    return args
+
+
+def demo_host(cfg: dict, kind: str | None, processes) -> EffectsHost:
+    """Moteur d'effets simulé : REAPER par défaut ; les autres sont les vrais
+    contrôleurs, branchés sur des données de démo."""
+    from core.demo import DemoReaper
+
+    if kind in (None, HOST_REAPER):
+        return DemoReaper(cfg)
+    cfg.setdefault("effects", {})["host"] = kind
+    if kind == "apo":
+        demo_dir = config.app_data_dir() / "apo-demo"
+        demo_dir.mkdir(parents=True, exist_ok=True)
+        cfg.setdefault("apo", {})["config_dir"] = str(demo_dir)
+    return create_host(cfg, processes)
+
+
+def run_demo(app: QApplication, cfg: dict, selftest: str | None, host: str | None = None) -> int:
+    """Console avec des moteurs simulés ; avec --selftest, capture puis quitte.
+
+    Les logiciels détectés sont simulés aussi (FL Studio, Discord, OBS) : le bouton « Mode musical »
+    apparaît pour FL Studio. Avec `--mode b`, la console est celle du mode autonome (sans Voicemeeter),
+    sur un audio Windows simulé."""
+    from core.app_volume import DemoAppVolumes
+    from core.demo import DemoProcesses, DemoVoicemeeter, demo_detector
+    from core.system_audio import DemoSystemAudio
+
+    processes = DemoProcesses()
+    detector = DetectService(demo_detector())
+    if SessionSettings(cfg).standalone:
+        session = SessionCoordinator(cfg, host_kind=HOST_NONE, mode=MODE_STANDALONE,
+                                     fl_sync_available=mido_available())
+        first = session.start(detector.scan_now())
+        vm, reaper = create_standalone(cfg, first.profile or session.standalone_profile()[0],
+                                       DemoSystemAudio())
+    else:
+        vm = DemoVoicemeeter(cfg)
+        reaper = demo_host(cfg, host, processes)
+        session = SessionCoordinator(cfg, host_kind=reaper.kind, mode=MODE_VOICEMEETER,
+                                     fl_sync_available=mido_available())
+        session.start(detector.scan_now())
+    window = MainWindow(cfg=cfg, vm=vm, reaper=reaper, processes=processes, persist=False,
+                        apps=DemoAppVolumes(), session=session, detector=detector)
+    if reaper.kind != HOST_REAPER:
+        reaper.start()
+    if selftest is None:
+        app.setQuitOnLastWindowClosed(True)
+        window.show()
+        return app.exec()
+    return run_selftest(app, cfg, window, vm, reaper, processes, Path(selftest))
+
+
+def run_selftest(app: QApplication, cfg: dict, window: MainWindow, vm, reaper, processes,
+                 image: Path) -> int:
+    """Vérifie qu'un build fonctionne : polices, rendu de la console et des
+    dialogues. Écrit IMAGE (+ _reglages / _vst) et un rapport IMAGE.txt."""
+    from ui.project_dialog import ProjectDialog
+    from ui.settings_dialog import SettingsDialog
+    from ui.vst_dialog import VstDialog
+
+    def pump(seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            app.processEvents()
+            time.sleep(0.02)
+
+    report = [f"{config.APP_NAME} {config.APP_VERSION}",
+              f"Python {platform.python_version()} — {platform.platform()}",
+              f"Plateforme Qt : {app.platformName()}"]
+    problems = []
+    if styles.DEFAULT_FONT not in QFontDatabase.families():
+        problems.append("police Inter non chargée")
+    image.parent.mkdir(parents=True, exist_ok=True)
+    window.resize(*window.compact_size())   # fenêtre « comme Voicemeeter » par défaut
+    window.show()
+    pump(1.2)  # quelques niveaux pour remplir les VU
+    shots = {image: window}
+
+    settings = SettingsDialog(cfg, processes, reaper, vm, window, persist=False, session=window._session,
+                              detector=window._detector, live=window._live_state)
+    settings.show()
+    vst = VstDialog(window.strips[1].strip_name(), reaper, None, [], window)
+    vst.show()
+    project = ProjectDialog(dict(cfg), current=reaper.project_path, startup=True, parent=window)
+    project.show()
+    splash = SplashScreen()
+    splash.set_status("Lancement de REAPER…")
+    splash.show()
+    pump(0.4)
+    shots[image.with_name(f"{image.stem}_reglages{image.suffix}")] = settings
+    shots[image.with_name(f"{image.stem}_vst{image.suffix}")] = vst
+    shots[image.with_name(f"{image.stem}_projet{image.suffix}")] = project
+    shots[image.with_name(f"{image.stem}_chargement{image.suffix}")] = splash
+    def capture(path: Path, widget) -> None:
+        if widget.grab().save(str(path)):
+            report.append(f"OK  {path.name} ({widget.width()}×{widget.height()})")
+        else:
+            problems.append(f"capture impossible : {path.name}")
+
+    for path, widget in shots.items():
+        capture(path, widget)
+    for title, suffix in (("Canaux", "canaux"), ("Layout et Apparence", "layout"),
+                          ("Apparence", "apparence"), ("À propos", "apropos")):   # autres onglets des réglages
+        index = next(i for i in range(settings.tabs.count()) if settings.tabs.tabText(i) == title)
+        settings.tabs.setCurrentIndex(index)
+        pump(0.2)
+        capture(image.with_name(f"{image.stem}_{suffix}{image.suffix}"), settings)
+    for widget in (settings, vst, project, splash):
+        widget.hide()
+
+    # Volume par application (moteur simulé) : fenêtre « Apps » de la strip Appels
+    apps_strip = next((s for s in window.strips if s.apps is not None), None)
+    if window._standalone:
+        report.append("INFO volume par application non essayé (mode autonome : volumes de Windows)")
+    elif apps_strip is None:
+        problems.append("aucun bouton « Apps » sur les strips virtuelles")
+    else:
+        window.open_app_mixer(apps_strip.index)
+        pump(0.4)
+        popup = window._app_mixer
+        if popup is None or not popup.rows:
+            problems.append("fenêtre « Apps » vide")
+        else:
+            capture(image.with_name(f"{image.stem}_apps{image.suffix}"), popup)
+            popup.close()
+            pump(0.1)
+    problems.extend(_selftest_app_volume(report))
+
+    # Dispositions, thèmes globaux et bouton « Mode musical »
+    problems.extend(_selftest_layouts(report, window, pump, capture, image))
+
+    # Mises à jour : infos du build embarquées, fenêtre de mise à jour, accès en ligne
+    problems.extend(_selftest_updates(report, window, pump, capture, image))
+
+    # Thème de couleur appliqué à chaud (violet), puis retour au thème d'origine
+    ui_cfg = cfg.setdefault("ui", {})
+    original = ui_cfg.get("theme", styles.DEFAULT_THEME)
+    ui_cfg["theme"] = "violet"
+    window.apply_appearance()
+    pump(0.4)
+    if styles.current_theme() != "violet":
+        problems.append("thème de couleur non appliqué")
+    capture(image.with_name(f"{image.stem}_theme{image.suffix}"), window)
+    ui_cfg["theme"] = original
+    window.apply_appearance()
+
+    report.extend(f"ERREUR {p}" for p in problems)
+    report.append("RÉSULTAT : " + ("ÉCHEC" if problems else "OK"))
+    image.with_suffix(".txt").write_text("\n".join(report) + "\n", encoding="utf-8")
+    log.info("Auto-test : %s", " | ".join(report))
+    return 1 if problems else 0
+
+
+def _selftest_app_volume(report: list[str]) -> list[str]:
+    """Sous Windows (exe compris) : le moteur réel du volume par application se charge."""
+    if sys.platform != "win32":
+        return []
+    try:
+        from core.app_volume import WindowsAppVolumes
+    except Exception as exc:          # module absent de l'exe : vrai problème de build
+        return [f"volume par application : {exc}"]
+    try:
+        backend = WindowsAppVolumes()
+        found = [backend.device_name(i) for i in range(3)]
+        report.append("OK  volume par application : "
+                      f"{sum(1 for name in found if name)} entrée(s) Voicemeeter trouvée(s)")
+    except ModuleNotFoundError as exc:
+        return [f"volume par application : {exc}"]
+    except Exception as exc:          # pas de service audio sur la machine de build
+        report.append(f"INFO volume par application : {exc}")
+    return []
+
+
+def _selftest_layouts(report: list[str], window: MainWindow, pump, capture, image: Path) -> list[str]:
+    """Chaque disposition et chaque thème global sont appliqués puis capturés ; le bouton « Mode musical »
+    n'existe que pour un logiciel musical (FL Studio : visible ; Discord : caché)."""
+    from core.layout_manager import LAYOUT_PRESETS, PRESET_ORDER
+    from core.themes import GLOBAL_THEME_ORDER
+
+    problems: list[str] = []
+    session, ui_cfg = window._session, window._cfg.setdefault("ui", {})
+    first_layout, first_theme, first_app = session.layouts.selector_value, ui_cfg.get("theme"), session.session.app
+    try:
+        button = window.action_bar.music_button
+        window._apply_change(session.select_app("fl_studio"))
+        pump(0.1)
+        if not (session.button().visible and button.isVisible()):
+            problems.append("bouton « Mode musical » absent pour FL Studio")
+        window._apply_change(session.select_app("discord"))
+        pump(0.1)
+        if session.button().visible or button.isVisible():
+            problems.append("bouton « Mode musical » visible pour Discord")
+        window._apply_change(session.select_app("fl_studio"))
+        for key in PRESET_ORDER:
+            window._apply_change(session.set_layout(key))
+            pump(0.3)
+            plan = window._plan
+            if plan is None or session.preset != key or not plan.groups:
+                problems.append(f"disposition « {LAYOUT_PRESETS[key].name} » non appliquée")
+            capture(image.with_name(f"{image.stem}_disposition_{key}{image.suffix}"), window)
+        if session.standalone:
+            report.append("INFO mode musical non essayé (mode autonome)")
+        else:
+            window._on_music_toggled(True)
+            pump(0.3)
+            if not session.music_on or session.preset != "fl_studio":
+                problems.append("mode musical : disposition FL Studio non appliquée")
+            window._on_music_toggled(False)
+            pump(0.1)
+        for key in GLOBAL_THEME_ORDER:
+            ui_cfg["theme"] = key
+            window.apply_appearance()
+            pump(0.3)
+            if styles.current_theme() != key:
+                problems.append(f"thème global « {key} » non appliqué")
+            capture(image.with_name(f"{image.stem}_theme_{key}{image.suffix}"), window)
+        report.append("OK  dispositions, thèmes globaux et bouton « Mode musical » vérifiés")
+    except Exception as exc:          # une erreur ici est un vrai défaut de build : on la rapporte
+        log.exception("Auto-test des dispositions")
+        problems.append(f"dispositions : {type(exc).__name__}: {exc}")
+    finally:
+        window._apply_change(session.select_app(first_app))
+        window._apply_change(session.set_layout(first_layout))
+        ui_cfg["theme"] = first_theme if first_theme is not None else styles.DEFAULT_THEME
+        window.apply_appearance()
+    return problems
+
+
+def _selftest_updates(report: list[str], window: MainWindow, pump, capture, image: Path) -> list[str]:
+    from core.updater import UpdateInfo, fetch_update, version_url
+    from ui.update_dialog import UpdateDialog
+
+    problems = []
+    build = load_build_info()
+    report.append(f"Build : {build.describe()} — {build.repo} / {build.tag}" if build
+                  else "Build : version de développement (pas de build_info.json)")
+    if getattr(sys, "frozen", False) and build is None:
+        problems.append("build_info.json absent de l'exe")
+    fake = UpdateInfo("9.9.9", (build.build if build else 0) + 1, "", "https://example.invalid/VoiceConnector.exe",
+                      "0" * 64, 1, "Exemple de notes de version", "")
+    dialog = UpdateDialog(fake, build, window, self_update=True)
+    dialog.show()
+    pump(0.3)
+    capture(image.with_name(f"{image.stem}_maj{image.suffix}"), dialog)
+    dialog.hide()
+    url = version_url({}, build)
+    if url is not None:               # non bloquant : réseau de la machine de build
+        try:
+            online = fetch_update(url)
+            report.append(f"INFO mise à jour en ligne : {online.describe()}")
+        except Exception as exc:
+            report.append(f"INFO mise à jour en ligne : {exc}")
+    return problems
+
+
+def main() -> int:
+    args = parse_args(sys.argv)
+    log_path = setup_logging()
+    install_exception_hooks()
+    log.info("=== %s %s — Python %s, %s ===", config.APP_NAME, config.APP_VERSION,
+             platform.python_version(), platform.platform())
+
+    set_windows_app_id()
+    qInstallMessageHandler(qt_message_handler)
+    app = QApplication(sys.argv)
+    app.setApplicationName(config.APP_NAME)
+    app.setApplicationVersion(config.APP_VERSION)
+    icon_path = config.resource_path("assets/icon.ico")
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
+    # Pendant le démarrage, fermer une popup ne doit pas quitter l'app
+    app.setQuitOnLastWindowClosed(False)
+
+    try:
+        cfg = config.load_config()
+    except (OSError, ValueError) as exc:
+        log.critical("Configuration illisible : %s", exc)
+        QMessageBox.critical(None, config.APP_NAME,
+                             f"Configuration par défaut illisible :\n{exc}\n\n"
+                             "Réinstalle l'application.")
+        return 1
+    apply_log_level(cfg.get("log_level", "INFO"))
+    if args.mode:
+        cfg.setdefault("session", {})["mode"] = MODE_ALIASES[args.mode]
+    ui_cfg = cfg.get("ui", {})
+    styles.configure(ui_cfg)
+    styles.apply_theme(app, float(ui_cfg.get("panel_opacity", 1.0)), ui_cfg.get("theme"))
+
+    if args.demo or args.selftest:
+        return run_demo(app, cfg, args.selftest, args.host)
+
+    # Une seule instance : deux consoles se disputeraient Voicemeeter et REAPER.
+    # Après un redémarrage, on laisse à l'ancienne instance le temps de s'arrêter.
+    lock = QLockFile(str(config.app_data_dir() / "instance.lock"))
+    if not lock.tryLock(RESTART_WAIT_MS if args.restart else 100):
+        if request_show():
+            return 0              # l'instance ouverte s'est affichée
+        # Pas de réponse : elle est sans doute en train de se fermer, on l'attend
+        if not lock.tryLock(CLOSING_WAIT_MS):
+            QMessageBox.information(None, config.APP_NAME, f"{config.APP_NAME} est déjà ouvert.")
+            return 0
+    if args.restart:
+        cfg = config.load_config()   # relue : l'ancienne instance a pu l'écrire en partant
+    # Après une mise à jour : l'ancien exe (encore verrouillé un instant) est supprimé
+    if not cleanup_previous():
+        QTimer.singleShot(OLD_EXE_RETRY_MS, cleanup_previous)
+
+    # Premier lancement (ou --setup) : édition de Voicemeeter et moteur d'effets
+    if args.setup or not cfg.get("setup_done", False):
+        from ui.setup_dialog import SetupDialog
+
+        dialog = SetupDialog(cfg, first_run=not args.setup)
+        if not dialog.exec():
+            lock.unlock()
+            return 0
+        save_config_quietly(cfg)
+
+    mixer = MixerApp(app, cfg, log_path)
+    server = listen_for_show_requests(mixer.show_window)
+    # Fermeture : plus de réponse aux nouveaux lancements (ils attendront le verrou)
+    app.aboutToQuit.connect(server.close)
+    app.aboutToQuit.connect(mixer.shutdown)
+    mixer.start()
+    exit_code = app.exec()
+
+    server.close()
+    lock.unlock()
+    log.info("=== %s arrêté (code %d) ===", config.APP_NAME, exit_code)
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

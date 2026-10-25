@@ -1,0 +1,21 @@
+# VoiceConnector — Python 3.11+, Windows 10/11 64 bits
+# Installation : pip install -r requirements.txt
+
+# Interface graphique (Qt6) — modules de base seulement (Core, Gui, Widgets…),
+# sans WebEngine/QML/PDF : ~85 Mo au lieu de ~260 Mo, et un exe plus léger
+PySide6-Essentials>=6.6,<7
+# Contrôle de Voicemeeter (API Remote) — s'importe sous le nom « voicemeeterlib »
+voicemeeter-api>=2.5,<3
+# (REAPER est piloté par un pont Lua livré dans assets/ : pas de dépendance)
+# Processus, fenêtres et registre Windows
+psutil>=5.9
+pywin32>=306; sys_platform == "win32"
+# Volume par application (sessions audio Windows / Core Audio)
+pycaw>=20240316; sys_platform == "win32"
+# Synchronisation du mixer de FL Studio (Mode musical) par MIDI virtuel (loopMIDI) : facultative,
+# sans ces deux modules tout le reste fonctionne (le bouton l'indique)
+mido>=1.3; sys_platform == "win32"
+python-rtmidi>=1.5; sys_platform == "win32"
+
+# Build de l'exécutable
+pyinstaller>=6.10   # PYINSTALLER_RESET_ENVIRONMENT (redémarrage)
