@@ -70,6 +70,7 @@ class Fader(QWidget):
         self._dragging = False
         self._last_y = 0.0
         self._drag_ratio = 0.0
+        self.color_scope: int | str | None = None   # canal (couleur personnalisée)
         self.setFixedWidth(WIDTH)
         self.setMinimumHeight(120)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -135,9 +136,10 @@ class Fader(QWidget):
         p.drawLine(QPointF(rail_x, top), QPointF(rail_x, bottom))
 
         # Remplissage accent sous le curseur (retour visuel de la position)
+        accent = styles.accent("fader", self.color_scope)
         cy = self._y_for(self._value)
         if not self._muted:
-            p.setPen(QPen(styles.color(styles.GREEN_NEON, 0.9), 2, Qt.PenStyle.SolidLine,
+            p.setPen(QPen(styles.color(accent, 0.9), 2, Qt.PenStyle.SolidLine,
                           Qt.PenCapStyle.RoundCap))
             p.drawLine(QPointF(rail_x, cy), QPointF(rail_x, bottom))
 
@@ -163,8 +165,8 @@ class Fader(QWidget):
             gradient.setColorAt(0.5, QColor("#a8a394"))
             gradient.setColorAt(1, QColor("#7d7869"))
         elif style == "fin":
-            gradient.setColorAt(0, QColor(styles.GREEN_BRIGHT))
-            gradient.setColorAt(1, QColor(styles.GREEN_NEON))
+            gradient.setColorAt(0, QColor(styles.accent_bright("fader", self.color_scope)))
+            gradient.setColorAt(1, QColor(accent))
         else:
             gradient.setColorAt(0, QColor(styles.WHITE))
             gradient.setColorAt(1, QColor("#d3d8de"))
@@ -172,10 +174,10 @@ class Fader(QWidget):
         p.setPen(QPen(styles.color(styles.WHITE, 0.35), 1))
         p.drawRoundedRect(thumb.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
         if self._dragging and not self._muted:   # halo pendant la saisie
-            p.setPen(QPen(styles.color(styles.GREEN_NEON, 0.8), 1.5))
+            p.setPen(QPen(styles.color(accent, 0.8), 1.5))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(thumb.adjusted(-1.5, -1.5, 1.5, 1.5), radius + 1, radius + 1)
-        index = styles.TEXT_MUTED if self._muted else styles.GREEN_NEON
+        index = styles.TEXT_MUTED if self._muted else accent
         if style == "vintage":                   # stries + index central
             p.setPen(QPen(styles.color("#3b382f", 0.6), 1))
             for dy in (-6, -3, 3, 6):
@@ -287,7 +289,8 @@ class HardwareFader(Fader):
         # Capuchon coloré
         cy = self._y_for(self._value)
         cap = QRectF(rail_x - THUMB_W / 2, cy - self.CAP_H / 2, THUMB_W, self.CAP_H)
-        base = QColor("#8d8c86" if self._muted else self._cap_color)
+        base = QColor("#8d8c86" if self._muted
+                      else styles.element_color("fader", self.color_scope) or self._cap_color)
         p.setBrush(QColor(0, 0, 0, 80))
         p.drawRoundedRect(cap.translated(0, 2), 3, 3)
         gradient = QLinearGradient(cap.topLeft(), cap.bottomLeft())

@@ -55,6 +55,9 @@ class Knob(QWidget):
         self._moved = False
         self._press_y = 0.0
         self._press_pos = 0.0
+        # Couleur personnalisée (styles.element_color) : élément et canal (ou Master) du knob
+        self.color_element = "knob"
+        self.color_scope: int | str | None = None
         self._timer = QTimer(self)
         self._timer.setInterval(SMOOTH_MS)
         self._timer.timeout.connect(self._animate)
@@ -99,29 +102,31 @@ class Knob(QWidget):
         pos = max(0.0, min(1.0, self._shown))
         span_value = -SPAN * pos
         arc = int(START_ANGLE * 16)
+        accent = styles.accent(self.color_element, self.color_scope)
+        dim = styles.accent_dim(self.color_element, self.color_scope)
 
         if self._active:
             # Halo, piste, puis arc de valeur
-            p.setPen(QPen(styles.color(styles.GREEN_NEON, 0.16), ring * 2.0,
+            p.setPen(QPen(styles.color(accent, 0.16), ring * 2.0,
                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(arc_rect, arc, int(span_value * 16))
-            p.setPen(QPen(styles.color(styles.GREEN_DIM, 0.7), ring,
+            p.setPen(QPen(styles.color(dim, 0.7), ring,
                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(arc_rect, arc, int(-SPAN * 16))
             if pos > 0.002:
-                p.setPen(QPen(QColor(styles.GREEN_NEON), ring,
+                p.setPen(QPen(QColor(accent), ring,
                               Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
                 p.drawArc(arc_rect, arc, int(span_value * 16))
         else:
-            # Éteint : piste à peine visible + point vert au départ de la course
-            p.setPen(QPen(styles.color(styles.GREEN_DIM, 0.25), ring * 0.6,
+            # Éteint : piste à peine visible + point de couleur au départ de la course
+            p.setPen(QPen(styles.color(dim, 0.25), ring * 0.6,
                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(arc_rect, arc, int(-SPAN * 16))
             start = math.radians(START_ANGLE)
             r = arc_rect.width() / 2
             dot = QPointF(center.x() + r * math.cos(start), center.y() - r * math.sin(start))
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(styles.color(styles.GREEN_NEON, 0.85))
+            p.setBrush(styles.color(accent, 0.85))
             p.drawEllipse(dot, ring * 0.45, ring * 0.45)
 
         # Bouton central
@@ -290,8 +295,9 @@ class HardwareKnob(Knob):
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
+        accent = styles.element_color(self.color_element, self.color_scope) or self._accent
         paint_dial(p, QPointF(self.width() / 2, self.height() / 2), float(self._diameter),
-                   self._shown, accent=self._accent, on_dark=self._on_dark, active=self._active)
+                   self._shown, accent=accent, on_dark=self._on_dark, active=self._active)
 
 
 class RouteButton(Knob):
@@ -310,7 +316,7 @@ class RouteButton(Knob):
         d = float(self._diameter)
         c = QPointF(self.width() / 2, self.height() / 2)
         r = d / 2
-        lit = QColor(self._color)
+        lit = QColor(styles.element_color(self.color_element, self.color_scope) or self._color)
 
         # Arc du niveau d'envoi (autour de la collerette)
         ring_r = r - 1.2

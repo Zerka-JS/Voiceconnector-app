@@ -7,7 +7,10 @@ Réglages de VoiceConnector, en onglets :
   - Layout et Apparence  : mode (A : Voicemeeter + application vocale, B : autonome), thème global
                            (Rétro, Futuriste, Épuré, Studio Pro), disposition (Standard, FL Studio / MAO,
                            Streaming / Broadcast, Podcasting / Voix), logiciel suivi (voir layout_settings.py)
-  - Apparence            : couleur d'accent, image d'arrière-plan, transparence des panneaux, fenêtre
+  - Apparence            : couleur d'accent, image d'arrière-plan, transparence des panneaux, fenêtre,
+                           lecteur de musique du Master
+  - Couleurs             : la couleur de chaque élément (knobs, fader, VU, Muet…), pour toute la console,
+                           un canal ou le Master (voir color_settings.py)
   - À propos             : version, développeurs, mises à jour, journaux
 
 Les options s'appliquent tout de suite ; tout est écrit dans la config à la
@@ -36,6 +39,7 @@ from core.session_coordinator import SessionCoordinator
 from core.themes import global_theme
 from core.voicemeeter_ctrl import EDITIONS, edition, strip_map
 from ui import styles
+from ui.color_settings import ColorSettings
 from ui.layout_settings import LayoutSettings, LiveState
 from ui.project_dialog import default_project
 
@@ -50,6 +54,7 @@ SETTINGS_TAB_CHANNELS = "channels"
 SETTINGS_TAB_AUDIO = "audio"
 SETTINGS_TAB_LAYOUT = "layout"
 SETTINGS_TAB_APPEARANCE = "appearance"
+SETTINGS_TAB_COLORS = "colors"
 SETTINGS_TAB_ABOUT = "about"
 TAB_TITLES = {
     SETTINGS_TAB_GENERAL: "Général",
@@ -57,6 +62,7 @@ TAB_TITLES = {
     SETTINGS_TAB_AUDIO: "Audio",
     SETTINGS_TAB_LAYOUT: "Layout et Apparence",
     SETTINGS_TAB_APPEARANCE: "Apparence",
+    SETTINGS_TAB_COLORS: "Couleurs",
     SETTINGS_TAB_ABOUT: "À propos",
 }
 
@@ -195,6 +201,9 @@ class SettingsDialog(QDialog):
         self._add_tab(SETTINGS_TAB_LAYOUT, self._scrolled(self.layout_tab))
         self._add_tab(SETTINGS_TAB_APPEARANCE, self._tab(self._theme_group(), self._widgets_group(),
                                                          self._background_group(), self._window_group()))
+        self.colors_tab = ColorSettings(cfg, self._channel_names, standalone=self._session.standalone)
+        self.colors_tab.appearanceChanged.connect(self.appearanceChanged)
+        self._add_tab(SETTINGS_TAB_COLORS, self._scrolled(self.colors_tab))
         self._add_tab(SETTINGS_TAB_ABOUT, self._about_tab())
         if start_tab in self._tab_keys:
             self.tabs.setCurrentIndex(self._tab_keys.index(start_tab))
@@ -514,6 +523,17 @@ class SettingsDialog(QDialog):
         combo.setCurrentIndex(max(0, combo.findData(current)))
         combo.currentIndexChanged.connect(lambda _i: self._set_ui(key, combo.currentData()))
         return combo
+
+    def _channel_names(self) -> list[str]:
+        """Nom de chaque canal de la console en cours (le profil en mode autonome, la config sinon)."""
+        if self._session.standalone:
+            infos = getattr(self._vm, "strip_infos", None)
+            names = [info.name for info in infos()] if callable(infos) else []
+            return [name or f"Canal {index + 1}" for index, name in enumerate(names)]
+        names = list(self._cfg.get("ui", {}).get("strip_names", []))
+        count = int(getattr(self._vm, "strip_count", 0) or len(names))
+        return [names[index] if index < len(names) and names[index] else f"Strip {index + 1}"
+                for index in range(count)]
 
     def _names_group(self) -> QGroupBox:
         group = QGroupBox("Noms des canaux")

@@ -1309,6 +1309,9 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             styles.refresh(app, float(ui_cfg.get("panel_opacity", DEFAULT_PANEL_OPACITY)))
+        for strip in self.strips:             # couleurs par élément : fonds, Muet, Solo, noms
+            strip.apply_colors()
+        self.master.apply_colors()
         if theme_changed:
             # Widgets dessinés à la main : ils relisent la palette en se redessinant
             self.background.invalidate()

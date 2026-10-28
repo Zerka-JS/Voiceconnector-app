@@ -176,7 +176,7 @@ def test_custom_background_and_panel_opacity(qapp, mixer, tmp_path, appdata):
     dialog = SettingsDialog(window._cfg, None, reaper, vm, window, persist=False)
     dialog.appearanceChanged.connect(window.apply_appearance)
     assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == [
-        "Général", "Canaux", "Audio", "Layout et Apparence", "Apparence", "À propos"]
+        "Général", "Canaux", "Audio", "Layout et Apparence", "Apparence", "Couleurs", "À propos"]
     assert not dialog.remove_background.isEnabled()
     dialog.set_background(image)                # copiée dans %APPDATA%/VoiceConnector
     assert window._cfg["ui"]["background_image"] == "background.png"

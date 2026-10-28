@@ -18,7 +18,9 @@ import logging
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
 
-from core import config
+from core import color_scheme, config
+from core.color_scheme import (  # noqa: F401 - ré-exportés : les widgets lisent styles.MASTER_SCOPE…
+    ELEMENT_LABELS, MASTER_ELEMENTS, MASTER_SCOPE, STRIP_ELEMENTS)
 from core.themes import DEFAULT_SHAPE, EXTRA_KEYS, SKIN_KEYS, ThemeSpec, global_theme
 
 log = logging.getLogger(__name__)
@@ -195,17 +197,99 @@ FADER_STYLE = DEFAULT_FADER_STYLE
 VU_STYLE = DEFAULT_VU_STYLE
 
 
+# --- Couleurs par élément (Réglages → Couleurs) -------------------------------
+# Clés de config ui.colors : « mute » (toute la console), « mute@2 » (canal 3 seulement),
+# « vu@master » (Master seulement) ; voir core/color_scheme.py. La couleur d'un canal passe
+# avant celle de toute la console ; sans couleur, l'élément suit le thème.
+COLORS: dict[str, str] = {}   # couleurs choisies (config ui.colors), « #rrggbb »
+_panel_opacity = 1.0          # opacité des panneaux en cours (le fond d'un panneau coloré la suit)
+
+
 def configure(ui_cfg: dict) -> bool:
-    """Police et styles de widgets d'après la config `ui` ; True si quelque chose a changé."""
-    global FONT_FAMILY, FADER_STYLE, VU_STYLE
+    """Police, styles de widgets et couleurs par élément d'après la config `ui` ;
+    True si quelque chose a changé."""
+    global FONT_FAMILY, FADER_STYLE, VU_STYLE, COLORS
     family = str(ui_cfg.get("font_family") or DEFAULT_FONT).strip() or DEFAULT_FONT
     fader = ui_cfg.get("fader_style")
     fader = fader if fader in FADER_STYLES else DEFAULT_FADER_STYLE
     vu = ui_cfg.get("vu_style")
     vu = vu if vu in VU_STYLES else DEFAULT_VU_STYLE
-    changed = (family, fader, vu) != (FONT_FAMILY, FADER_STYLE, VU_STYLE)
-    FONT_FAMILY, FADER_STYLE, VU_STYLE = family, fader, vu
+    colors = color_scheme.clean(ui_cfg.get("colors"))
+    changed = (family, fader, vu, colors) != (FONT_FAMILY, FADER_STYLE, VU_STYLE, COLORS)
+    FONT_FAMILY, FADER_STYLE, VU_STYLE, COLORS = family, fader, vu, colors
     return changed
+
+
+def color_key(element: str, scope: int | str | None = None) -> str:
+    """Clé de ui.colors : « mute » pour toute la console, « mute@2 » pour un canal."""
+    return color_scheme.color_key(element, scope)
+
+
+def element_color(element: str, scope: int | str | None = None,
+                  colors: dict | None = None) -> str | None:
+    """Couleur choisie pour un élément : celle de son canal (ou du Master), sinon celle de
+    toute la console ; None s'il suit le thème. `colors` : une config ui.colors à consulter à
+    la place de celle appliquée (l'éditeur montre ainsi un choix avant qu'il soit appliqué)."""
+    return color_scheme.resolve(COLORS if colors is None else color_scheme.clean(colors),
+                                element, scope)
+
+
+def element_default(element: str) -> str:
+    """Couleur d'un élément quand il suit le thème."""
+    return {"mute": MUTE_ON, "solo": SOLO_ON, "pad": RED_MUTE, "name": TEXT_PRIMARY,
+            "panel": BG_COLUMN}.get(element, GREEN_NEON)
+
+
+def accent(element: str, scope: int | str | None = None) -> str:
+    """Couleur principale d'un élément (arc d'un knob, remplissage d'un fader…)."""
+    return element_color(element, scope) or element_default(element)
+
+
+def accent_dim(element: str, scope: int | str | None = None) -> str:
+    """Teinte sombre assortie (piste d'un knob, bordure éteinte)."""
+    custom = element_color(element, scope)
+    return color_scheme.mix(custom, BG_SECTION, 0.7) if custom else GREEN_DIM
+
+
+def accent_bright(element: str, scope: int | str | None = None) -> str:
+    """Teinte de survol assortie."""
+    custom = element_color(element, scope)
+    return color_scheme.mix(custom, WHITE, HOVER_TOWARD_WHITE) if custom else GREEN_BRIGHT
+
+
+def mix(a: str, b: str, amount: float) -> str:
+    """Couleur entre `a` (0) et `b` (1)."""
+    return color_scheme.mix(a, b, amount)
+
+
+def ink_on(value: str) -> str:
+    """Encre lisible sur une couleur de fond (texte d'un bouton allumé)."""
+    return color_scheme.ink_on(value, ON_ACCENT_DARK, WHITE)
+
+
+def lit_button_style(button: str, value: str) -> str:
+    """QSS d'un bouton à bascule (« muteButton », « soloButton ») allumé dans une couleur choisie.
+    Posée sur la tranche elle-même : elle passe avant la feuille de style de l'application."""
+    hover = mix(value, WHITE, 0.15)
+    return (f"QPushButton#{button}:checked {{ background: {value}; border: 1px solid {hover};"
+            f" color: {ink_on(value)}; }}"
+            f"QPushButton#{button}:checked:hover {{ background: {hover}; }}")
+
+
+def mute_style(value: str) -> str:
+    """QSS du bouton Muet allumé dans une couleur choisie."""
+    return lit_button_style("muteButton", value)
+
+
+def solo_style(value: str) -> str:
+    """QSS du bouton Solo allumé dans une couleur choisie."""
+    return lit_button_style("soloButton", value)
+
+
+def panel_style(value: str, selector: str = "QFrame#column") -> str:
+    """QSS du fond d'un panneau (colonne, tranche crème) dans une couleur choisie, avec
+    l'opacité des panneaux en cours."""
+    return f"{selector} {{ background: {_rgba(value, _panel_opacity)}; }}"
 
 
 def font(pixel_size: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
@@ -366,6 +450,8 @@ def build_stylesheet(panel_opacity: float = 1.0) -> str:
 
 def refresh(app: QApplication, panel_opacity: float = 1.0) -> None:
     """Ré-applique palette et QSS (après un changement de thème ou d'opacité)."""
+    global _panel_opacity
+    _panel_opacity = panel_opacity
     _apply_palette(app)
     if app.font().family() != FONT_FAMILY:
         app.setFont(font(11))
@@ -380,9 +466,11 @@ def set_panel_opacity(app: QApplication, panel_opacity: float) -> None:
 
 def apply_theme(app: QApplication, panel_opacity: float = 1.0, theme: str | None = None) -> None:
     """Charge les polices et applique thème, palette et QSS à toute l'application."""
+    global _panel_opacity
     load_fonts()
     app.setFont(font(11))
     set_theme(theme)
+    _panel_opacity = panel_opacity
     _apply_palette(app)
     app.setStyleSheet(build_stylesheet(panel_opacity))
 

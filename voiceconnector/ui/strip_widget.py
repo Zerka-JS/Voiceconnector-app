@@ -16,6 +16,11 @@ curseur large ou rien), le trim, le compresseur et le gate, l'égaliseur rapide 
 Podcasting, Compr. + Gate remplacent le trim des entrées matérielles (la tranche est trop étroite
 pour les trois). Une commande n'est montrée que si le moteur la porte vraiment : l'égaliseur
 rapide n'apparaît que sur les tranches dont le moteur renvoie ses valeurs.
+
+Couleurs (Réglages → Couleurs) : chaque élément dessiné connaît son canal (`color_scope`) et relit
+sa couleur en se redessinant ; `apply_colors()` pose celles qui passent par une feuille de style
+(Muet, Solo, nom, fond). `_build_ui()` construit l'agencement : la disposition « Console »
+(ui/console_strip.py) le remplace par le sien sans toucher à la partie moteur de la tranche.
 """
 
 from __future__ import annotations
@@ -85,6 +90,7 @@ class FxBadge(QAbstractButton):
         super().__init__(parent)
         self._tips = ("Effets actifs — clic pour tout bypasser",
                       "Effets en bypass — clic pour les réactiver")
+        self.color_scope: int | None = None     # canal (couleur personnalisée)
         self.setCheckable(True)
         self.setChecked(True)
         self.setFixedSize(28, 28)
@@ -104,12 +110,14 @@ class FxBadge(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(2, 2, self.width() - 4, self.height() - 4)
         on = self.isChecked() and self.isEnabled()   # sans piste REAPER : éteint
+        custom = styles.element_color("fx_badge", self.color_scope)
         if on:
-            p.setPen(QPen(styles.color(styles.GREEN_NEON, 0.25), 3))
-            p.setBrush(QColor(styles.GREEN_NEON))
-            ink = QColor(styles.ON_ACCENT)
+            accent = custom or styles.GREEN_NEON
+            p.setPen(QPen(styles.color(accent, 0.25), 3))
+            p.setBrush(QColor(accent))
+            ink = QColor(styles.ink_on(custom) if custom else styles.ON_ACCENT)
         else:
-            p.setPen(QPen(QColor(styles.GREEN_DIM), 1.5))
+            p.setPen(QPen(QColor(styles.accent_dim("fx_badge", self.color_scope)), 1.5))
             p.setBrush(QColor(styles.BADGE_OFF))
             ink = QColor(styles.TEXT_MUTED)
         if self.underMouse():
@@ -145,6 +153,7 @@ class AppsButton(QAbstractButton):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._count = 0
+        self.color_scope: int | None = None     # canal (couleur personnalisée)
         self.setFixedSize(APPS_BUTTON_WIDTH, MUTE_HEIGHT)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Volume par application")
@@ -164,7 +173,8 @@ class AppsButton(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
         hover = self.underMouse() or self.isDown()
-        p.setPen(QPen(QColor(styles.GREEN_DIM if hover else styles.BORDER_COLUMN), 1))
+        p.setPen(QPen(QColor(styles.accent_dim("apps", self.color_scope) if hover
+                             else styles.BORDER_COLUMN), 1))
         p.setBrush(QColor(styles.BUTTON_HOVER if hover else styles.BUTTON_BG))
         p.drawRoundedRect(rect, 7, 7)
         # Icône : trois glissières horizontales
@@ -177,7 +187,7 @@ class AppsButton(QAbstractButton):
             p.setBrush(ink)
             p.drawEllipse(QPointF(left + 12 * knob, y), 1.8, 1.8)
         p.setFont(styles.font(10, QFont.Weight.DemiBold))
-        p.setPen(QColor(styles.GREEN_NEON if self._count else styles.TEXT_MUTED))
+        p.setPen(QColor(styles.accent("apps", self.color_scope) if self._count else styles.TEXT_MUTED))
         p.drawText(QRectF(left + 15, 0, self.width() - left - 19, self.height()),
                    Qt.AlignmentFlag.AlignCenter, str(self._count))
 
@@ -209,6 +219,7 @@ class FxList(QWidget):
         self._enabled = True
         self._add_label = "+ Ajouter un effet"
         self._hint = ""
+        self.color_scope: int | None = None     # canal (couleur des pastilles)
         self.setMouseTracking(True)
         self._resize_for(0)
 
@@ -234,6 +245,7 @@ class FxList(QWidget):
                 self._pills[index].set_info(name, enabled, is_open)
                 continue
             pill = FxPill(name, enabled, is_open, self)
+            pill.color_scope = self.color_scope
             pill.clicked.connect(lambda i=index: self.openRequested.emit(i))
             pill.bypassRequested.connect(lambda on, i=index: self.bypassRequested.emit(i, on))
             pill.removeRequested.connect(lambda i=index: self.removeRequested.emit(i))
@@ -346,6 +358,12 @@ class EditableLabel(QWidget):
     def setText(self, text: str) -> None:  # noqa: N802
         self._label.setText(text)
 
+    def set_color(self, value: str | None) -> None:
+        """Couleur du nom (None : celle du thème)."""
+        sheet = f"QLabel#stripName {{ color: {value}; }}" if value else ""
+        if self._label.styleSheet() != sheet:
+            self._label.setStyleSheet(sheet)
+
     def mouseDoubleClickEvent(self, _event) -> None:  # noqa: N802
         self.start_editing()
 
@@ -407,6 +425,11 @@ class StripWidget(QFrame):
     assignRequested = Signal(int)                # mode autonome : assigner une application à la tranche
     unassignRequested = Signal(int)
 
+    # Nom d'objet Qt (feuille de style) et sélecteur du fond de la tranche : la disposition
+    # « Console » (ui/console_strip.py) les remplace par les siens.
+    OBJECT_NAME = "stripPanel"
+    PANEL_SELECTOR = "QFrame#stripPanel"
+
     def __init__(self, index: int, name: str, route_labels: list[str],
                  sends_adjustable: bool = True, pad_modes: tuple[str, ...] = ("color", "pan", "fx"),
                  physical: bool = True, pad_mode: str | None = None, apps_button: bool = False,
@@ -417,14 +440,22 @@ class StripWidget(QFrame):
         self._sends_adjustable = sends_adjustable   # False : Banana, knobs = interrupteurs
         self._physical = physical
         self._accent = accent or styles.CAP_COLORS[index % len(styles.CAP_COLORS)]
-        self.setObjectName("stripPanel")
-        self.setFixedWidth(STRIP_WIDTH)
+        self.setObjectName(self.OBJECT_NAME)
         self._track: TrackInfo | None = None
         self._style = StripStyle()          # la console d'origine ; changé par apply_style()
         self._eq_known = False              # le moteur renvoie l'égaliseur rapide de cette tranche
         self._present = True
         self._released = False
+        self._build_ui(name, route_labels, pad_modes, pad_mode, apps_button, route_colors)
+        self._refresh_sections()
+        self._assign_color_scopes()
+        self.apply_colors()
 
+    def _build_ui(self, name: str, route_labels: list[str], pad_modes: tuple[str, ...],
+                  pad_mode: str | None, apps_button: bool, route_colors: list[str] | None) -> None:
+        """Agencement de la tranche matérielle (fond crème) : crée tous les widgets que le reste
+        de la classe pilote (name, fader, vu, mute, solo, knobs, pad, fx_list, fx_badge…)."""
+        self.setFixedWidth(STRIP_WIDTH)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 6, 5, 4)
         layout.setSpacing(6)
@@ -443,7 +474,7 @@ class StripWidget(QFrame):
         self._input_section = self._build_input_section()
         self._eq_section = self._build_eq_section()
         self._fx_section = self._build_fx_section()
-        self._pad_section = self._build_pad_section(pad_modes, physical, pad_mode)
+        self._pad_section = self._build_pad_section(pad_modes, self._physical, pad_mode)
         self._build_wide_pan()
         self._routing_section = self._build_routing_section(route_labels, route_colors)
         layout.addWidget(self._input_section)
@@ -454,7 +485,33 @@ class StripWidget(QFrame):
         layout.addLayout(self._build_switch_rows(apps_button))
         layout.addWidget(self._build_fader_section(), 1)
         layout.addWidget(self._routing_section)
-        self._refresh_sections()
+
+    # -------------------------------------------------------------- couleurs
+    def _assign_color_scopes(self) -> None:
+        """Chaque élément dessiné connaît son canal : c'est lui qui relit sa couleur à l'écran."""
+        for widget in (self.fader, self.vu, self.fx_badge, self.fx_list, self.pad, self.apps):
+            if widget is not None:
+                widget.color_scope = self.index
+        for route, knob in enumerate(self.knobs):
+            knob.color_element, knob.color_scope = f"send{route}", self.index
+
+    @staticmethod
+    def _set_sheet(widget: QWidget, sheet: str) -> None:
+        if widget.styleSheet() != sheet:      # re-styler un widget coûte : seulement si besoin
+            widget.setStyleSheet(sheet)
+
+    def apply_colors(self) -> None:
+        """Couleurs choisies pour les éléments qui passent par une feuille de style (Muet, Solo,
+        nom, fond) ; les éléments dessinés à la main relisent les leurs en se redessinant."""
+        scope = self.index
+        for button, element, make in ((self.mute, "mute", styles.mute_style),
+                                      (self.solo, "solo", styles.solo_style)):
+            if button is not None:
+                chosen = styles.element_color(element, scope)
+                self._set_sheet(button, make(chosen) if chosen else "")
+        self.name.set_color(styles.element_color("name", scope))
+        panel = styles.element_color("panel", scope)
+        self._set_sheet(self, styles.panel_style(panel, self.PANEL_SELECTOR) if panel else "")
 
     # ------------------------------------------------------------ sections
     def _labelled(self, widget: QWidget, text: str) -> QVBoxLayout:

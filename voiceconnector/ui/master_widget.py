@@ -440,6 +440,7 @@ class MasterWidget(QFrame):
         knob_box.setContentsMargins(6, 8, 6, 8)
         knob_box.setSpacing(2)
         self.knob = HardwareKnob(diameter=HEADPHONE_KNOB, checkable=False, smooth=True, on_dark=True)
+        self.knob.color_element, self.knob.color_scope = "headphone", styles.MASTER_SCOPE
         self.knob.setToolTip("Volume master (casque) — double-clic : 0 dB")
         self.knob.valueChanged.connect(self._on_knob)
         knob_box.addWidget(self.knob, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -459,6 +460,7 @@ class MasterWidget(QFrame):
         spectrum_box.setSpacing(4)
         self.vu = LedVuMeter(channels=2, bar_width=6, gap=3, margin_top=4, margin_bottom=4,
                              clip_leds=True)
+        self.vu.color_scope = styles.MASTER_SCOPE
         spectrum_box.addWidget(self.vu)
         self.spectrum = SpectrumDisplay()
         spectrum_box.addWidget(self.spectrum, 1)
@@ -508,6 +510,14 @@ class MasterWidget(QFrame):
         layout.addWidget(eq_section)
 
         self._show_value(0.0)
+        self.apply_colors()
+
+    def apply_colors(self) -> None:
+        """Fond du Master dans sa couleur choisie (le reste est dessiné à la main)."""
+        panel = styles.element_color("panel", styles.MASTER_SCOPE)
+        sheet = styles.panel_style(panel) if panel else ""
+        if self.styleSheet() != sheet:
+            self.setStyleSheet(sheet)
 
     def set_headphone(self, db: float) -> None:
         self.knob.setValue(db)

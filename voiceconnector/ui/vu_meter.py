@@ -48,6 +48,7 @@ class VuMeter(QWidget):
         self._peak_t = [0.0] * channels
         self._clip_until = [0.0] * channels
         self._t = time.monotonic()
+        self.color_scope: int | str | None = None   # canal ou Master (couleur personnalisée)
         width = channels * bar_width + (channels - 1) * gap + (6 if clip_leds else 0)
         self.setFixedWidth(width)
         self.setMinimumHeight(60)
@@ -81,8 +82,9 @@ class VuMeter(QWidget):
 
         gradient = QLinearGradient(0, bottom, 0, top)
         # Couleur du thème (niveaux normaux) → jaune (zone haute) → rouge (crêtes)
-        gradient.setColorAt(0.0, QColor(styles.GREEN_NEON).darker(115))
-        gradient.setColorAt(_gradient_stop(-18), QColor(styles.GREEN_NEON))
+        accent = styles.accent("vu", self.color_scope)
+        gradient.setColorAt(0.0, QColor(accent).darker(115))
+        gradient.setColorAt(_gradient_stop(-18), QColor(accent))
         gradient.setColorAt(_gradient_stop(-9), QColor(styles.VU_YELLOW))
         gradient.setColorAt(_gradient_stop(-3), QColor(styles.VU_YELLOW))
         gradient.setColorAt(_gradient_stop(-1.5), QColor(styles.VU_RED))
@@ -176,13 +178,12 @@ class LedVuMeter(VuMeter):
             p.drawText(QRectF(x0 + 3, y - 5, SCALE_WIDTH - 3, 10),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(abs(db)))
 
-    @staticmethod
-    def _segment_color(db: float) -> QColor:
+    def _segment_color(self, db: float) -> QColor:
         if db >= -3:
             return QColor(styles.VU_RED)
         if db >= -9:
             return QColor(styles.VU_YELLOW)
-        return QColor(styles.VU_GREEN)
+        return QColor(styles.element_color("vu", self.color_scope) or styles.VU_GREEN)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
