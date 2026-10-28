@@ -197,6 +197,7 @@ class DawState:
     tracks: list[DawTrack] = field(default_factory=list)
     track_offset: int = 0            # première piste affichée (Mackie Control : groupe de 8)
     capabilities: frozenset[str] = frozenset()
+    song_mode_label: str = "Morceau" # nom du bouton CAP_SONG_MODE (« Boucle » pour Mackie Control)
 
     def can(self, capability: str) -> bool:
         return capability in self.capabilities
