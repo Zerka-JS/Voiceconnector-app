@@ -248,6 +248,13 @@ class DawLink:
     def poll(self) -> bool:
         return False
 
+    def mark_offline(self, message: str) -> bool:
+        """Le logiciel n'est plus là (on l'a vu se fermer) : le Studio le dit, sans attendre un silence."""
+        was = self.state.connected
+        self.state.connected = False
+        self.state.message = message
+        return was
+
     # --------------------------------------------------------------- transport
     def play_pause(self) -> None: ...
     def stop_playback(self) -> None: ...

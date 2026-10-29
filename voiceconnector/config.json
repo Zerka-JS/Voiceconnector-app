@@ -94,5 +94,16 @@
     "in_port": "VoiceConnector VC",
     "tracks": {"master": 0, "drums": 1, "synths": 2, "fx": 3, "mic": 4}
   },
+  "studio": {
+    "daw": "auto",
+    "steps": 0,
+    "channels": 64,
+    "tracks": 32,
+    "mcu_out_port": "VoiceConnector DAW",
+    "mcu_in_port": "VoiceConnector Retour",
+    "mcu_keepalive_s": 0,
+    "view": "rack",
+    "geometry": ""
+  },
   "state": {}
 }

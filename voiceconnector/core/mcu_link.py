@@ -32,6 +32,7 @@ GUARD_S = 0.45                       # après une écriture de fader, on garde n
 FADER_INTERVAL_S = 0.02              # écritures de fader au plus toutes les 20 ms (coalescées)
 TOUCH_RELEASE_S = 0.35               # le doigt « se lève » du fader quand on n'y touche plus
 RELEASE_S = 0.03                     # durée d'un appui de bouton
+HELLO_EVERY_S = 3.0                  # tant que le logiciel ne répond pas, on se présente de nouveau
 PAN_INTERVAL_S = 0.06                # un pas de potard toutes les 60 ms jusqu'à la position voulue
 PAN_TRIES = 24
 BANK_WAIT_S = 0.8                    # le groupe de 8 pistes a changé si les noms changent avant ce délai
@@ -49,6 +50,7 @@ class McuLink(DawLink):
         self._clock = clock
         self._keepalive_s = max(0.0, float(keepalive_s))
         self._next_keepalive = 0.0
+        self._next_hello = 0.0
         self._lcd = [" "] * mcu.LCD_SIZE
         self._digits: dict[int, mcu.Digit] = {}
         self._ring = [-1] * mcu.STRIPS                       # position de la couronne de chaque potard
@@ -74,6 +76,7 @@ class McuLink(DawLink):
 
     def start(self) -> None:
         super().start()
+        self._next_hello = self._clock() + HELLO_EVERY_S
         self.refresh()
 
     def refresh(self) -> None:
@@ -341,6 +344,9 @@ class McuLink(DawLink):
         self._steer_pans(now)
         if self._bank_wait is not None and now > self._bank_wait[1]:
             self._bank_wait = None
+        if not self.state.connected and now >= self._next_hello:
+            self._next_hello = now + HELLO_EVERY_S
+            self.refresh()
         if self._keepalive_s and now >= self._next_keepalive:
             self._next_keepalive = now + self._keepalive_s
             self._safe_send(mcu.ACTIVE_SENSING)
