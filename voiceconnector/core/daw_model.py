@@ -196,6 +196,7 @@ class DawState:
     step_count: int = 16             # pas affichés par canal
     tracks: list[DawTrack] = field(default_factory=list)
     track_offset: int = 0            # première piste affichée (Mackie Control : groupe de 8)
+    master: DawTrack | None = None   # fader général, quand le logiciel le donne (Mackie Control)
     capabilities: frozenset[str] = frozenset()
     song_mode_label: str = "Morceau" # nom du bouton CAP_SONG_MODE (« Boucle » pour Mackie Control)
 
