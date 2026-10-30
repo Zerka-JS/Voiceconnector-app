@@ -113,7 +113,7 @@ def test_a_reading_error_is_swallowed():
 def test_unread_messages_are_capped():
     hub, opened = make_hub()
     reader, sleeper = hub.open(), hub.open()
-    for start in range(0, MAX_PENDING + 500, 500):
+    for _ in range(0, MAX_PENDING + 500, 500):
         opened[0].inbox += [bytes([i % 100]) for i in range(500)]
         reader.receive()                             # le Studio lit, le mixer ne lit jamais
     assert len(sleeper.receive()) == MAX_PENDING

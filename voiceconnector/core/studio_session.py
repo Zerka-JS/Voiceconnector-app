@@ -201,6 +201,10 @@ class StudioSession:
     def demo(self) -> bool:
         return self.mode == MODE_DEMO
 
+    @property
+    def opened(self) -> bool:
+        return self._opened
+
     def select(self, key: str) -> None:
         """Change le logiciel piloté : la liaison est rouverte."""
         self._selected = normalize_choice(key)
@@ -381,11 +385,15 @@ class StudioSession:
 
     def ports_text(self) -> str:
         """Les ports MIDI virtuels que le logiciel visé doit voir (pour l'aide)."""
-        if self.guide_target.backend == BACKEND_FL:
-            out_port, in_port = fl_sync_ports(self._cfg)
-            return f"« {out_port} » (VoiceConnector → FL Studio) et « {in_port} » (FL Studio → VoiceConnector)"
-        out_port, in_port = mcu_ports(self._cfg)
-        return f"« {out_port} » (VoiceConnector → logiciel) et « {in_port} » (logiciel → VoiceConnector)"
+        return ports_text(self.guide_target, self._cfg)
+
+
+def ports_text(target: StudioTarget, cfg: Mapping | None = None) -> str:
+    if target.backend == BACKEND_FL:
+        out_port, in_port = fl_sync_ports(cfg)
+        return f"« {out_port} » (VoiceConnector → FL Studio) et « {in_port} » (FL Studio → VoiceConnector)"
+    out_port, in_port = mcu_ports(cfg)
+    return f"« {out_port} » (VoiceConnector → logiciel) et « {in_port} » (logiciel → VoiceConnector)"
 
 
 def fl_sync_ports(cfg: Mapping | None) -> tuple[str, str]:
