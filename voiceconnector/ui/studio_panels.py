@@ -38,6 +38,7 @@ def _clear(layout) -> None:
         item = layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            widget.hide()
             widget.deleteLater()
 
 
@@ -537,18 +538,20 @@ class MixerPanel(QFrame):
         self.strips_layout.setSpacing(6)
         outer.addLayout(self.strips_layout, 1)
         self.strips: list[MixerStrip] = []
-        self.master_strip = MixerStrip(master=True)
+        self.master_strip = MixerStrip(master=True, parent=self)    # jamais sans parent : Qt le détruit avec le panneau
+        self.master_strip.hide()
         self.master_strip.volumeChanged.connect(self.masterChanged)
         self._indexes: list[int] = []
 
     def clear(self) -> None:
         for strip in self.strips:
-            strip.setParent(None)
+            self.strips_layout.removeWidget(strip)
+            strip.hide()
             strip.deleteLater()
         self.strips = []
         self._indexes = []
         self.strips_layout.removeWidget(self.master_strip)
-        self.master_strip.setParent(None)
+        self.master_strip.hide()
 
     def _make_strip(self) -> MixerStrip:
         strip = MixerStrip()
@@ -572,9 +575,8 @@ class MixerPanel(QFrame):
         for strip, track in zip(self.strips, state.tracks, strict=False):
             strip.setVisible(True)
             strip.update_from(track)
-        if self.master_strip.parent() is not self:
+        if self.strips_layout.indexOf(self.master_strip) < 0:
             self.strips_layout.addWidget(self.master_strip)
-            self.master_strip.setParent(self)
         self.master_strip.setVisible(state.master is not None)
         if state.master is not None:
             self.master_strip.update_from(state.master)

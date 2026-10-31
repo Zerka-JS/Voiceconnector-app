@@ -46,6 +46,22 @@ jobs:
           python main.py --mode b --selftest preview/modeb/console.png 2>&1 | tail -40 || true
           ls -la preview preview/modeb
           cat preview/console.txt || true
+      - name: Diagnostic - sortie propre de chaque fichier de tests Qt
+        env:
+          APPDATA: ${{ runner.temp }}/appdata_diag
+        run: |
+          python -m pip install -q pytest
+          mkdir -p "$APPDATA"
+          for t in tests/test_studio_widgets.py tests/test_studio_ui.py tests/test_ui.py tests/test_hardware_ui.py tests/test_modes_ui.py tests/test_colors_ui.py; do
+            name=$(basename "$t" .py)
+            set +e
+            VC_NO_QT_TEARDOWN=1 python -X faulthandler -m pytest -q -p no:cacheprovider "$t" > diag_raw.txt 2>&1
+            raw=$?
+            python -X faulthandler -m pytest -q -p no:cacheprovider "$t" > diag.txt 2>&1
+            code=$?
+            set -e
+            echo "::notice title=diag_$name::sans_nettoyage=$raw avec_nettoyage=$code | $(tail -3 diag_raw.txt | tr '\n' ' ' | tr -d '%') | $(tail -3 diag.txt | tr '\n' ' ' | tr -d '%')"
+          done
       - name: Publier les captures
         if: always()
         env:

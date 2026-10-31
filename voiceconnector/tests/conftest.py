@@ -31,6 +31,30 @@ def qapp():
     return app
 
 
+@pytest.fixture(scope="session", autouse=True)
+def qt_teardown():
+    """Fin de session : les fenêtres restantes sont fermées et détruites avant que Python ne ferme.
+
+    Sans cela, des objets Qt encore référencés par Python sont détruits au hasard de l'arrêt de
+    l'interpréteur, après QApplication : un abort (code 134) après un résumé pytest pourtant vert."""
+    yield
+    if os.environ.get("VC_NO_QT_TEARDOWN"):             # pour comparer avec et sans (diagnostic CI)
+        return
+    try:
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return
+    import gc
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    app.closeAllWindows()
+    app.processEvents()
+    gc.collect()
+    app.processEvents()
+
+
 @pytest.fixture
 def cfg(appdata):
     from core import config
