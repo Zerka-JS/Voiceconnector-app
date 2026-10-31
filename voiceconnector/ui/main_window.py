@@ -77,7 +77,7 @@ MIN_HEIGHT = 680
 TITLE_BAR_ALLOWANCE = 40      # barre de titre Windows (le cadre n'est connu qu'une fois affiché)
 # Augmenté quand la disposition des strips change (0.4 : Intellipan) : la
 # taille mémorisée, prévue pour l'ancienne disposition, est alors ignorée.
-LAYOUT_VERSION = 4            # 4 : barre d'actions, dispositions (Layout et Apparence)
+LAYOUT_VERSION = 4            # 4 : barre d'actions, dispositions (Mode et thème)
 DEFAULT_DARKNESS = 0.45       # assombrissement de l'image d'arrière-plan
 DEFAULT_PANEL_OPACITY = 1.0
 APP_COUNT_MS = 2000           # nombre d'applications affiché sur les boutons « Apps »
@@ -790,7 +790,7 @@ class MainWindow(QMainWindow):
             strip_names=[strip.strip_name() for strip in self.strips])
 
     def _live_state(self) -> LiveState:
-        """Ce que l'onglet « Layout et Apparence » montre de l'état en cours."""
+        """Ce que l'onglet « Mode et thème » montre de l'état en cours."""
         return LiveState(names=[strip.strip_name() for strip in self.strips], route=self._voice_route(),
                          params=self._params,
                          profile_name=self._vm.profile.name if self._standalone else "",
@@ -802,7 +802,7 @@ class MainWindow(QMainWindow):
         route = self._voice_route()
         if route is None:
             self.toast.show_message("Aucune application vocale à alimenter : lance Discord, OBS, TeamSpeak "
-                                    "ou Audacity, ou choisis-en une dans Réglages → Layout et Apparence.")
+                                    "ou Audacity, ou choisis-en une dans Réglages → Mode et thème.")
             return
         pending = route.pending(self._params)
         for command in pending:

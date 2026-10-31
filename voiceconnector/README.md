@@ -82,7 +82,7 @@ sur son insert (désactivable dans ⚙ → Options).
 | Bouton Projet | projet REAPER ouvert, clic pour en changer ; FL Studio / Equalizer APO : l'ouvrir |
 | Bouton – (Master) | réduire VoiceConnector (barre des tâches, ou zone de notification si activé) |
 | Barre d'actions | mode, logiciel suivi (clic = réglages), disposition, bouton **Mode musical** (logiciels musicaux seulement) |
-| Bouton ⚙ (Master) | réglages : Général, Canaux, Audio, Layout et Apparence, Apparence, À propos |
+| Bouton ⚙ (Master) | réglages : Général, Canaux, Audio, Mode et thème, Apparence, À propos |
 
 `VoiceConnector.exe --demo` ouvre la console avec des moteurs simulés (sans Voicemeeter ni REAPER)
 pour la découvrir ; `--demo --host flstudio` (ou `apo`, `none`) montre les autres moteurs
@@ -92,12 +92,12 @@ d'effets, et `--demo --mode b` le mode autonome. La démo « voit » FL Studio, 
 
 La **barre d'actions**, sous le haut de la fenêtre, montre le mode en cours (A ou B), le **logiciel audio
 suivi** (clic = réglages), le choix de la **disposition** et, seulement quand le logiciel suivi a une
-partie musique, le bouton **Mode musical**. Tout se règle dans ⚙ → **Layout et Apparence**.
+partie musique, le bouton **Mode musical**. Tout se règle dans ⚙ → **Mode et thème**.
 
 ### Mode A — Voicemeeter + application vocale (par défaut)
 
 Voicemeeter mixe le son, VoiceConnector le pilote comme avant et sait aussi **alimenter une application de
-voix ou d'analyse** : Discord, OBS, TeamSpeak, Audacity, Zoom… (⚙ → Layout et Apparence → *Application
+voix ou d'analyse** : Discord, OBS, TeamSpeak, Audacity, Zoom… (⚙ → Mode et thème → *Application
 vocale*). Deux transports :
 
 - **Bus Voicemeeter** (par défaut) : le micro part sur un bus (B1 pour un chat vocal, B2 pour un logiciel
@@ -116,12 +116,12 @@ canaux vient d'un **profil** :
 
 - automatique, d'après le logiciel détecté ou choisi (FL Studio ou Ableton : Master, logiciel, Micro,
   Discord ; OBS / Discord : Micro, Game, Discord, Music ; Audacity / Zoom : Voix, Invité, Musique…) ;
-- ou importé (⚙ → Layout et Apparence → *Importer un profil…*, exportable aussi) : un fichier JSON dont le
+- ou importé (⚙ → Mode et thème → *Importer un profil…*, exportable aussi) : un fichier JSON dont le
   format est décrit en tête de `core/profile_import.py`.
 
 Clic droit sur le nom d'un canal d'application : *Assigner une application…*. Une tranche dont l'application
 n'est pas lancée est grisée. Il n'y a ni routage, ni égaliseur, ni effets dans ce mode. Le mode se choisit
-dans ⚙ → Layout et Apparence → *Mode de fonctionnement* (puis **Redémarrer VoiceConnector**), ou avec
+dans ⚙ → Mode et thème → *Mode de fonctionnement* (puis **Redémarrer VoiceConnector**), ou avec
 `VoiceConnector.exe --mode a` / `--mode b`.
 
 ### Dispositions
@@ -135,13 +135,13 @@ dans ⚙ → Layout et Apparence → *Mode de fonctionnement* (puis **Redémarre
 | **Auto** | suit le logiciel suivi (FL Studio → FL Studio / MAO, Discord → Streaming…) |
 
 Les emplacements d'une disposition sont rangés d'après le type et le nom des canaux ; chacun peut être donné
-à un canal précis dans ⚙ → Layout et Apparence. Compresseur, Gate et égaliseur rapide existent sur les
+à un canal précis dans ⚙ → Mode et thème. Compresseur, Gate et égaliseur rapide existent sur les
 entrées **matérielles** de Voicemeeter (celles que son API expose) ; en mode B, seules les dispositions
 (rangement, panoramique, VU) s'appliquent.
 
 ### Thèmes
 
-⚙ → Layout et Apparence → *Thème de l'interface* :
+⚙ → Mode et thème → *Thème de l'interface* :
 
 | Thème | Style |
 |---|---|
@@ -167,7 +167,7 @@ tout seul si le logiciel musical disparaît. Quand il est actif :
   inversement), avec ou sans Voicemeeter. Pistes par défaut : Master = 0, Bus Batterie = 1, Synths = 2,
   FX = 3, Micro = 4 (modifiables dans `config.json` → `flsync.tracks`).
 
-Installation de la synchronisation (une fois) : ⚙ → Layout et Apparence → *Synchronisation avec FL Studio*
+Installation de la synchronisation (une fois) : ⚙ → Mode et thème → *Synchronisation avec FL Studio*
 indique ce qui manque et installe le script.
 
 1. Crée deux ports MIDI virtuels avec [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) :
@@ -358,8 +358,8 @@ Les données de l'ancien dossier `%APPDATA%\REAPER Mixer` sont reprises automati
 - **Voir Voicemeeter ou REAPER** : ⚙ → cases *Afficher la fenêtre…* (re-masquées à la
   fermeture des réglages).
 - **Pas de bouton « Mode musical »** : c'est voulu tant que le logiciel suivi n'a pas de partie musique
-  (Discord, Zoom, Spotify, OBS…). Lance FL Studio, ou choisis-le dans ⚙ → Layout et Apparence → *Logiciel suivi*.
-- **« Synchronisation du mixer : en attente »** : ⚙ → Layout et Apparence → *Synchronisation avec FL
+  (Discord, Zoom, Spotify, OBS…). Lance FL Studio, ou choisis-le dans ⚙ → Mode et thème → *Logiciel suivi*.
+- **« Synchronisation du mixer : en attente »** : ⚙ → Mode et thème → *Synchronisation avec FL
   Studio* → **Vérifier** : il indique si `mido`, les ports loopMIDI ou le script manquent.
 - **Une tranche est grisée (mode B)** : l'application du canal n'est pas lancée (ou joue sous un autre
   nom : clic droit sur le nom → *Assigner une application…*).
@@ -410,7 +410,7 @@ voiceconnector/
 │   └── demo.py             moteurs simulés (--demo, --selftest)
 ├── ui/                     fenêtre, strips, master, knob/fader/VU dessinés, dialogues
 │   ├── main_window.py      fenêtre principale (applique les décisions du coordinateur)
-│   ├── settings_dialog.py  réglages (onglets) ; layout_settings.py : onglet « Layout et Apparence »
+│   ├── settings_dialog.py  réglages (onglets) ; layout_settings.py : onglet « Mode et thème »
 │   ├── action_bar.py       barre d'actions (mode, logiciel, disposition, Mode musical)
 │   └── wide_pan.py, backdrops.py  panoramique large, décors des thèmes globaux
 ├── assets/                 logo et icône VoiceConnector, police Inter, pont Lua, script MIDI de FL Studio

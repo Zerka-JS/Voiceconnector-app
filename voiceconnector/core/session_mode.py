@@ -1,7 +1,7 @@
 """
 Modes de fonctionnement de VoiceConnector et mode musical (logique pure, sans Qt).
 
-Deux modes, au choix dans Réglages → « Layout et Apparence » (config `session.mode`) :
+Deux modes, au choix dans Réglages → « Mode et thème » (config `session.mode`) :
 
 - A, « voicemeeter » : Voicemeeter fait le mixage. VoiceConnector le pilote, et
   alimente une application de voix ou d'analyse (Discord, OBS, TeamSpeak,

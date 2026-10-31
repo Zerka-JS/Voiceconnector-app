@@ -773,7 +773,7 @@ def install_script(documents: Path | None = None, source: Path | None = None) ->
 
 
 # --------------------------------------------------------------------------- #
-# Diagnostic de l'installation (Réglages → Layout et Apparence)
+# Diagnostic de l'installation (Réglages → Mode et thème)
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class SetupCheck:

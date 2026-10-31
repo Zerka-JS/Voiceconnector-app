@@ -1,13 +1,13 @@
 """
-Onglet « Layout et Apparence » des réglages.
+Onglet « Mode et thème » des réglages.
 
 Cinq blocs :
   - Mode de fonctionnement : A (Voicemeeter + application vocale) ou B (autonome, sans Voicemeeter) ;
     un changement de mode demande un redémarrage ;
   - Thème de l'interface : Rétro (VFD / Neon Wave Synth), Futuriste (Cyberpunk), Épuré (Flat Modern),
     Studio Pro (Dark Slate), appliqué tout de suite ;
-  - Disposition : « Auto » (selon le logiciel détecté), Standard, FL Studio / MAO, Streaming / Broadcast,
-    Podcasting / Voix, et l'affectation des emplacements aux canaux ;
+  - Mode musical : l'arrangement studio (Master, Bus Batterie, Synths, FX, Micro) et le canal de chaque
+    emplacement ;
   - Logiciel suivi : détection automatique ou choix manuel, et (mode B) le profil des canaux ;
   - Application vocale (mode A) : quelle application alimenter, par un bus ou un flux VBAN
     (expérimental), et le routage conseillé.
@@ -30,9 +30,9 @@ from PySide6.QtWidgets import (QAbstractButton, QButtonGroup, QComboBox, QFileDi
                                QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QRadioButton, QVBoxLayout, QWidget)
 
-from core.app_detector import KNOWN_APPS
+from core.app_detector import AUTO, KNOWN_APPS
 from core.fl_sync import fl_setup_checks, install_script
-from core.layout_manager import AUTO, LAYOUT_PRESETS, MODE_STANDALONE, MODE_VOICEMEETER, layout_choices
+from core.layout_manager import FL_STUDIO, LAYOUT_PRESETS, MODE_STANDALONE, MODE_VOICEMEETER
 from core.mixer_model import MixerParams
 from core.mixer_router import (MAX_VBAN_STREAMS, TRANSPORT_BUS, TRANSPORT_VBAN, VbanStream, VoiceRoute,
                                describe_status)
@@ -140,7 +140,7 @@ class LayoutSettings(QWidget):
         box.setSpacing(12)
         box.addWidget(self._mode_group())
         box.addWidget(self._theme_group())
-        box.addWidget(self._layout_group())
+        box.addWidget(self._studio_group())
         box.addWidget(self._software_group())
         self.voice_group = self._voice_group()
         box.addWidget(self.voice_group)
@@ -211,10 +211,7 @@ class LayoutSettings(QWidget):
 
     def _on_theme(self, button) -> None:
         self._cfg.setdefault("ui", {})["theme"] = button.key
-        suggested = button.spec.suggested_layout
-        label = LAYOUT_PRESETS[suggested].name if suggested in LAYOUT_PRESETS else ""
-        self.theme_hint.setText(f"Thème « {button.spec.name} » appliqué."
-                                + (f" Il va bien avec la disposition « {label} »." if label else ""))
+        self.theme_hint.setText(f"Thème « {button.spec.name} » appliqué.")
         self.appearanceChanged.emit()
 
     def show_theme(self) -> None:
@@ -226,52 +223,25 @@ class LayoutSettings(QWidget):
             card.update()
         self.theme_buttons.setExclusive(True)
 
-    # ------------------------------------------------------------ disposition
-    def _layout_group(self) -> QGroupBox:
-        group = QGroupBox("Disposition de la console")
+    # ------------------------------------------------------- arrangement studio
+    def _studio_group(self) -> QGroupBox:
+        group = QGroupBox("Mode musical : arrangement studio")
         box = QVBoxLayout(group)
-        form = QFormLayout()
-        self.layout_choice = QComboBox()
-        for key, label in layout_choices():
-            self.layout_choice.addItem(label, key)
-        self.layout_choice.currentIndexChanged.connect(self._on_layout)
-        form.addRow("Disposition", self.layout_choice)
-        box.addLayout(form)
-        self.layout_hint = _hint("")
-        box.addWidget(self.layout_hint)
+        self.studio_hint = _hint(LAYOUT_PRESETS[FL_STUDIO].description + " Le bouton « Mode musical » de la barre "
+                                 "d'actions l'applique (avec FL Studio, Ableton, REAPER, Cubase…) et libère les "
+                                 "traitements de voix ; en le quittant, la console redevient comme avant.")
+        box.addWidget(self.studio_hint)
         self.roles_form = QFormLayout()
         self.role_choices: dict[str, QComboBox] = {}
         box.addLayout(self.roles_form)
-        self.roles_hint = _hint("Emplacements de la disposition : laisse « Automatique » pour que VoiceConnector "
-                                "range les canaux d'après leur type, ou choisis le canal de chaque emplacement.")
+        self.roles_hint = _hint("Laisse « Automatique » pour que VoiceConnector range les canaux d'après leur type, "
+                                "ou choisis le canal de chaque emplacement.")
         box.addWidget(self.roles_hint)
         return group
 
-    def _on_layout(self, _index: int) -> None:
-        if self._building:
-            return
-        choice = str(self.layout_choice.currentData())
-        self.sessionChanged.emit(self._session.set_layout(choice))
-        self.show_layout()
-
-    def show_layout(self) -> None:
-        """Description de la disposition choisie et sélecteurs d'emplacements."""
-        layouts = self._session.layouts
-        selector = layouts.selector_value
-        was, self._building = self._building, True
-        self.layout_choice.setCurrentIndex(max(0, self.layout_choice.findData(selector)))
-        self._building = was
-        effective = layouts.effective_preset()
-        preset = LAYOUT_PRESETS[effective]
-        if selector == AUTO:
-            self.layout_hint.setText(f"Auto : la console suit le logiciel détecté — en ce moment « {preset.name} ». "
-                                     f"{preset.description}")
-        else:
-            self.layout_hint.setText(preset.description)
-        if self._session.music_on:
-            self.layout_hint.setText(self.layout_hint.text() + "\nLe mode musical impose la disposition "
-                                     "FL Studio / MAO tant qu'il est actif.")
-        self._fill_roles(effective)
+    def show_studio(self) -> None:
+        """Description de l'arrangement studio et sélecteurs d'emplacements."""
+        self._fill_roles(FL_STUDIO)
 
     def _fill_roles(self, preset_key: str) -> None:
         for _ in range(self.roles_form.rowCount()):
@@ -346,7 +316,6 @@ class LayoutSettings(QWidget):
             return
         self.sessionChanged.emit(self._session.select_app(str(self.app_choice.currentData())))
         self.show_software()
-        self.show_layout()
 
     def _refresh_detection(self) -> None:
         if self._detector is not None:
@@ -592,7 +561,7 @@ class LayoutSettings(QWidget):
         """Relit tout l'état (à l'ouverture de l'onglet et après un changement fait ailleurs)."""
         self._show_mode()
         self.show_theme()
-        self.show_layout()
+        self.show_studio()
         self.show_software()
         self.show_voice()
         self.show_fl()

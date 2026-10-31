@@ -3,9 +3,9 @@ Profils du mode autonome (B) : la liste des canaux de la console quand Voicemeet
 n'est pas là (logique pure, sans Qt).
 
 Un profil décrit les canaux (nom, rôle, source du son) et, en option, le logiciel
-audio qu'il accompagne, la disposition et le thème à utiliser. Deux origines :
+audio qu'il accompagne et le thème à utiliser. Deux origines :
 
-- un fichier JSON importé (Réglages → Layout et Apparence → « Importer un profil… »),
+- un fichier JSON importé (Réglages → Mode et Apparence → « Importer un profil… »),
   et exportable de la même façon ;
 - un profil automatique, choisi d'après le logiciel détecté ou sélectionné
   (FL Studio → Master, Bus Batterie, Synths, FX, Micro ; OBS / Discord →
@@ -15,7 +15,7 @@ Format du fichier :
 
     {
       "format": "voiceconnector-profile", "version": 1,
-      "name": "Mon studio", "software": "fl_studio", "layout": "fl_studio", "theme": "slate",
+      "name": "Mon studio", "software": "fl_studio", "theme": "slate",
       "channels": [
         {"name": "Master",   "role": "master", "source": {"type": "fl_track", "track": 0}},
         {"name": "Discord",  "role": "discord", "source": {"type": "app", "key": "discord.exe"}},
@@ -39,9 +39,8 @@ from typing import Any, Mapping
 
 from core import themes
 from core.app_detector import SYNC_FL_SYSEX, ActiveApp, AppKind, KnownApp, known_app
-from core.layout_manager import (ALL_ROLES, LAYOUT_PRESETS, ROLE_DISCORD, ROLE_DRUMS, ROLE_FX,
-                                 ROLE_GAME, ROLE_GUEST, ROLE_MASTER, ROLE_MIC, ROLE_MUSIC,
-                                 ROLE_SYNTHS, ROLE_VOICE)
+from core.layout_manager import (ALL_ROLES, ROLE_DISCORD, ROLE_DRUMS, ROLE_FX, ROLE_GAME, ROLE_GUEST,
+                                 ROLE_MASTER, ROLE_MIC, ROLE_MUSIC, ROLE_SYNTHS, ROLE_VOICE)
 from core.system_audio import SOURCE_APP, SOURCE_CAPTURE, SOURCE_MASTER
 
 log = logging.getLogger(__name__)
@@ -52,6 +51,9 @@ PROFILE_FORMAT = "voiceconnector-profile"
 PROFILE_VERSION = 1
 MAX_CHANNELS = 24
 MAX_NAME = 30                   # limite des noms de canaux dans l'interface
+# Logiciels de voix : le profil automatique est Voix, Invité / Appel, Musique (podcast, appel, montage)
+VOICE_PROFILE_APPS = frozenset({"audacity", "audition", "ocenaudio", "premiere", "resolve",
+                                "zoom", "teams", "skype"})
 FL_TRACK_MAX = 126              # Master (0) + 125 inserts
 GAIN_RANGE_DB = (-60.0, 12.0)
 MAX_FILE_BYTES = 1_000_000
@@ -91,7 +93,6 @@ class Profile:
     name: str
     channels: tuple[ProfileChannel, ...]
     software: str = ""          # clé du catalogue de logiciels (facultatif)
-    layout: str = ""            # clé de disposition conseillée (facultatif)
     theme: str = ""             # clé de thème conseillé (facultatif)
 
     @property
@@ -130,12 +131,10 @@ def parse_profile(data: Any) -> Profile:
     channels = tuple(_parse_channel(item, n) for n, item in enumerate(raw, start=1))
     name = str(data.get("name") or "Profil importé").strip()[:MAX_NAME] or "Profil importé"
     software = str(data.get("software") or "").strip().lower()
-    layout = str(data.get("layout") or "").strip().lower()
     theme = str(data.get("theme") or "").strip().lower()
     return Profile(
         name=name, channels=channels,
         software=software if known_app(software) is not None else "",
-        layout=layout if layout in LAYOUT_PRESETS else "",
         theme=theme if themes.global_theme(theme) is not None else "")
 
 
@@ -191,7 +190,7 @@ def profile_to_dict(profile: Profile) -> dict:
             item["mute"] = bool(channel.mute)
         channels.append(item)
     data: dict[str, Any] = {"format": PROFILE_FORMAT, "version": PROFILE_VERSION, "name": profile.name}
-    for field_name in ("software", "layout", "theme"):
+    for field_name in ("software", "theme"):
         if getattr(profile, field_name):
             data[field_name] = getattr(profile, field_name)
     data["channels"] = channels
@@ -245,7 +244,7 @@ def _fl_profile(software: str) -> Profile:
               (ROLE_SYNTHS, "Synths", 2), (ROLE_FX, "FX", 3))
     channels = tuple(ProfileChannel(label, ChannelSource(SOURCE_FL_TRACK, track=track), role)
                      for role, label, track in tracks) + (MIC,)
-    return Profile("FL Studio (pistes du mixer)", channels, software, "fl_studio")
+    return Profile("FL Studio (pistes du mixer)", channels, software)
 
 
 def default_profile(app: KnownApp | None, *, fl_sync: bool = True) -> Profile:
@@ -257,22 +256,22 @@ def default_profile(app: KnownApp | None, *, fl_sync: bool = True) -> Profile:
         return Profile("Général", (
             MASTER, MIC, _app("Discord", "discord.exe", ROLE_DISCORD),
             _app("Musique", "spotify.exe", ROLE_MUSIC), _app("Navigateur", "chrome.exe"),
-            _app("Sons système", "system")), "", "standard")
+            _app("Sons système", "system")), "")
     if app.sync == SYNC_FL_SYSEX and fl_sync:
         return _fl_profile(app.key)
     if app.kind is AppKind.DAW:
         return Profile(f"{app.name} (volume général)", (
             MASTER, ProfileChannel(app.name, ChannelSource(SOURCE_APP, app.key)), MIC,
-            _app("Discord", "discord.exe", ROLE_DISCORD)), app.key, "fl_studio")
-    if app.layout == "podcast":
+            _app("Discord", "discord.exe", ROLE_DISCORD)), app.key)
+    if app.key in VOICE_PROFILE_APPS:
         return Profile(f"{app.name} (voix)", (
             ProfileChannel("Voix", ChannelSource(SOURCE_CAPTURE), ROLE_VOICE),
             _app("Invité / Appel", app.key if app.kind is AppKind.VOICE_CHAT else "", ROLE_GUEST),
-            _app("Musique / Jingles", "spotify.exe", ROLE_MUSIC)), app.key, "podcast")
+            _app("Musique / Jingles", "spotify.exe", ROLE_MUSIC)), app.key)
     suffix = {AppKind.BROADCAST: "direct", AppKind.VOICE_CHAT: "vocal"}.get(app.kind, "musique")
     return Profile(f"{app.name} ({suffix})", (
         MIC, _app("Game", "", ROLE_GAME), _app("Discord", "discord.exe", ROLE_DISCORD),
-        _app("Music", "spotify.exe", ROLE_MUSIC)), app.key, "streaming")
+        _app("Music", "spotify.exe", ROLE_MUSIC)), app.key)
 
 
 def apply_overrides(profile: Profile, overrides: Mapping[int, Mapping[str, str]]) -> Profile:

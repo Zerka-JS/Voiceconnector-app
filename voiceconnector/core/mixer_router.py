@@ -296,7 +296,7 @@ def plan_voice_route(app: KnownApp | None, transport: str = TRANSPORT_BUS, *,
                             f"Voicemeeter l'envoie vers un câble virtuel (VB-Cable) ; un bus B est plus simple.")
         if not feed:
             warnings.append("Aucune tranche de voix (micro) n'est reconnue : choisis les rôles des "
-                            "tranches dans Réglages → Layout et Apparence.")
+                            "tranches dans Réglages → Mode et thème.")
     else:
         steps.append(f"Voicemeeter émettra le {stream.describe()}.")
         steps.append("Dans Voicemeeter, ouvre le menu VBAN et choisis, dans la colonne « Route » de ce flux, "

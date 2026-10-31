@@ -75,7 +75,6 @@ class KnownApp:
     exe_names: tuple[str, ...] = ()       # noms de processus exacts (casse et « .exe » ignorés)
     exe_patterns: tuple[str, ...] = ()    # expressions régulières pour les noms versionnés
     has_music_production: bool = False    # partie musicale / DAW → bouton Mode musical
-    layout: str = "standard"              # disposition conseillée (layout_manager)
     sync: str | None = None               # protocole de synchro du mixer, si géré
     install_dirs: tuple[str, ...] = ()    # dossiers d'installation (variables %…% et « * »)
     priority: int = 50                    # plus petit = prioritaire en détection automatique
@@ -123,109 +122,109 @@ KNOWN_APPS: tuple[KnownApp, ...] = (
     # --- Stations audio numériques : bouton Mode musical -----------------------
     KnownApp("fl_studio", "FL Studio", AppKind.DAW,
              exe_names=("FL64.exe", "FL.exe", "FL64 (scaled).exe", "FL (scaled).exe"),
-             has_music_production=True, layout="fl_studio", sync=SYNC_FL_SYSEX,
+             has_music_production=True, sync=SYNC_FL_SYSEX,
              install_dirs=(_PF + r"\Image-Line\FL Studio*", _PF86 + r"\Image-Line\FL Studio*"),
              priority=10),
     KnownApp("ableton", "Ableton Live", AppKind.DAW,
              exe_patterns=(r"^ableton live( \d+)?( (suite|standard|intro|lite|trial|beta))?$",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Ableton\Live*",), priority=11),
     KnownApp("reaper", "REAPER", AppKind.DAW, exe_names=("reaper.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\REAPER*", _PF86 + r"\REAPER*"), priority=12),
     KnownApp("cubase", "Cubase", AppKind.DAW,
              exe_patterns=(r"^cubase( pro| artist| elements| le| ai)?[ _]?\d*(\.\d+)?(_64)?$",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Steinberg\Cubase*",), priority=13),
     KnownApp("nuendo", "Nuendo", AppKind.DAW,
              exe_patterns=(r"^nuendo[ _]?\d*(\.\d+)?(_64)?$",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Steinberg\Nuendo*",), priority=14),
     KnownApp("studio_one", "Studio One", AppKind.DAW, exe_names=("Studio One.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\PreSonus\Studio One*",), priority=15),
     KnownApp("logic", "Logic Pro", AppKind.DAW,
              exe_names=("Logic Pro X", "Logic Pro", "Logic Pro.exe"),
-             has_music_production=True, layout="fl_studio", priority=16),
+             has_music_production=True, priority=16),
     KnownApp("bitwig", "Bitwig Studio", AppKind.DAW, exe_names=("Bitwig Studio.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Bitwig Studio*",), priority=17),
     KnownApp("pro_tools", "Pro Tools", AppKind.DAW, exe_names=("ProTools.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Avid\Pro Tools*",), priority=18),
     KnownApp("reason", "Reason", AppKind.DAW, exe_names=("Reason.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Reason Studios\Reason*",), priority=19),
     KnownApp("cakewalk", "Cakewalk", AppKind.DAW, exe_names=("Cakewalk.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Cakewalk\Cakewalk Core",), priority=20),
     KnownApp("ardour", "Ardour", AppKind.DAW, exe_patterns=(r"^ardour\d*$",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\Ardour*",), priority=21),
     KnownApp("lmms", "LMMS", AppKind.DAW, exe_names=("lmms.exe",),
-             has_music_production=True, layout="fl_studio",
+             has_music_production=True,
              install_dirs=(_PF + r"\LMMS",), priority=22),
 
     # --- Streaming / diffusion ---------------------------------------------------
     KnownApp("obs", "OBS Studio", AppKind.BROADCAST,
-             exe_names=("obs64.exe", "obs32.exe", "obs.exe"), layout="streaming",
+             exe_names=("obs64.exe", "obs32.exe", "obs.exe"),
              install_dirs=(_PF + r"\obs-studio", _PF86 + r"\obs-studio"), priority=40),
     KnownApp("streamlabs", "Streamlabs", AppKind.BROADCAST,
              exe_names=("Streamlabs Desktop.exe", "Streamlabs OBS.exe", "slobs.exe"),
-             layout="streaming", install_dirs=(_PF + r"\Streamlabs*",), priority=41),
+             install_dirs=(_PF + r"\Streamlabs*",), priority=41),
     KnownApp("vmix", "vMix", AppKind.BROADCAST, exe_names=("vMix64.exe", "vMix.exe"),
-             layout="streaming", priority=42),
+             priority=42),
     KnownApp("xsplit", "XSplit", AppKind.BROADCAST,
-             exe_names=("XSplit.Core.exe", "XSplit.Gamecaster.exe"), layout="streaming",
+             exe_names=("XSplit.Core.exe", "XSplit.Gamecaster.exe"),
              priority=43),
     KnownApp("twitch_studio", "Twitch Studio", AppKind.BROADCAST,
-             exe_names=("Twitch Studio.exe",), layout="streaming", priority=44),
+             exe_names=("Twitch Studio.exe",), priority=44),
 
     # --- Éditeurs audio et montage vidéo (voix, podcast) ---------------------------
     KnownApp("audacity", "Audacity", AppKind.AUDIO_EDITOR, exe_names=("audacity.exe",),
-             layout="podcast", install_dirs=(_PF + r"\Audacity", _PF86 + r"\Audacity"),
+             install_dirs=(_PF + r"\Audacity", _PF86 + r"\Audacity"),
              priority=45),
     KnownApp("audition", "Adobe Audition", AppKind.AUDIO_EDITOR,
-             exe_patterns=(r"^adobe audition( cc)?( \d{4})?$",), layout="podcast",
+             exe_patterns=(r"^adobe audition( cc)?( \d{4})?$",),
              install_dirs=(_PF + r"\Adobe\Adobe Audition*",), priority=46),
     KnownApp("ocenaudio", "ocenaudio", AppKind.AUDIO_EDITOR, exe_names=("ocenaudio.exe",),
-             layout="podcast", priority=47),
+             priority=47),
     KnownApp("premiere", "Adobe Premiere Pro", AppKind.VIDEO_EDITOR,
-             exe_patterns=(r"^adobe premiere pro",), layout="podcast",
+             exe_patterns=(r"^adobe premiere pro",),
              install_dirs=(_PF + r"\Adobe\Adobe Premiere Pro*",), priority=60),
     KnownApp("resolve", "DaVinci Resolve", AppKind.VIDEO_EDITOR, exe_names=("Resolve.exe",),
-             layout="podcast", install_dirs=(_PF + r"\Blackmagic Design\DaVinci Resolve",),
+             install_dirs=(_PF + r"\Blackmagic Design\DaVinci Resolve",),
              priority=61),
 
     # --- Chat vocal / visioconférence --------------------------------------------------
     KnownApp("discord", "Discord", AppKind.VOICE_CHAT,
              exe_names=("Discord.exe", "DiscordPTB.exe", "DiscordCanary.exe",
                         "DiscordDevelopment.exe"),
-             layout="streaming", install_dirs=(r"%LOCALAPPDATA%\Discord",), priority=50),
+             install_dirs=(r"%LOCALAPPDATA%\Discord",), priority=50),
     KnownApp("teamspeak3", "TeamSpeak 3", AppKind.VOICE_CHAT,
-             exe_names=("ts3client_win64.exe", "ts3client_win32.exe"), layout="streaming",
+             exe_names=("ts3client_win64.exe", "ts3client_win32.exe"),
              install_dirs=(_PF + r"\TeamSpeak 3 Client", _PF86 + r"\TeamSpeak 3 Client"),
              priority=51),
     KnownApp("teamspeak", "TeamSpeak", AppKind.VOICE_CHAT, exe_names=("TeamSpeak.exe",),
-             layout="streaming", install_dirs=(r"%LOCALAPPDATA%\TeamSpeak*",), priority=52),
+             install_dirs=(r"%LOCALAPPDATA%\TeamSpeak*",), priority=52),
     KnownApp("mumble", "Mumble", AppKind.VOICE_CHAT, exe_names=("mumble.exe",),
-             layout="streaming", install_dirs=(_PF + r"\Mumble*",), priority=53),
-    KnownApp("zoom", "Zoom", AppKind.VOICE_CHAT, exe_names=("Zoom.exe",), layout="podcast",
+             install_dirs=(_PF + r"\Mumble*",), priority=53),
+    KnownApp("zoom", "Zoom", AppKind.VOICE_CHAT, exe_names=("Zoom.exe",),
              install_dirs=(_PF + r"\Zoom", r"%APPDATA%\Zoom"), priority=54),
     KnownApp("teams", "Microsoft Teams", AppKind.VOICE_CHAT,
-             exe_names=("ms-teams.exe", "Teams.exe"), layout="podcast", priority=55),
-    KnownApp("skype", "Skype", AppKind.VOICE_CHAT, exe_names=("Skype.exe",), layout="podcast",
+             exe_names=("ms-teams.exe", "Teams.exe"), priority=55),
+    KnownApp("skype", "Skype", AppKind.VOICE_CHAT, exe_names=("Skype.exe",),
              priority=56),
 
     # --- Lecteurs ------------------------------------------------------------------------
     KnownApp("spotify", "Spotify", AppKind.MEDIA_PLAYER, exe_names=("Spotify.exe",),
-             layout="streaming", install_dirs=(r"%APPDATA%\Spotify",), priority=70),
-    KnownApp("vlc", "VLC", AppKind.MEDIA_PLAYER, exe_names=("vlc.exe",), layout="streaming",
+             install_dirs=(r"%APPDATA%\Spotify",), priority=70),
+    KnownApp("vlc", "VLC", AppKind.MEDIA_PLAYER, exe_names=("vlc.exe",),
              install_dirs=(_PF + r"\VideoLAN\VLC", _PF86 + r"\VideoLAN\VLC"), priority=71),
     KnownApp("foobar2000", "foobar2000", AppKind.MEDIA_PLAYER, exe_names=("foobar2000.exe",),
-             layout="streaming", priority=72),
+             priority=72),
     KnownApp("itunes", "Apple Music / iTunes", AppKind.MEDIA_PLAYER,
-             exe_names=("iTunes.exe", "AppleMusic.exe"), layout="streaming", priority=73),
+             exe_names=("iTunes.exe", "AppleMusic.exe"), priority=73),
 )
 
 APPS_BY_KEY: Mapping[str, KnownApp] = {app.key: app for app in KNOWN_APPS}
@@ -414,10 +413,6 @@ class ActiveApp:
     @property
     def has_music_production(self) -> bool:
         return self.app is not None and self.app.has_music_production
-
-    @property
-    def suggested_layout(self) -> str | None:
-        return self.app.layout if self.app is not None else None
 
 
 NO_APP = ActiveApp()

@@ -1,6 +1,6 @@
 """
-Barre d'actions de la console (sous le haut de la fenêtre) : mode de fonctionnement, logiciel
-suivi, choix de la disposition et bouton « Mode musical ».
+Barre d'actions de la console (en haut de la fenêtre) : mode de fonctionnement, logiciel suivi,
+bouton « Studio » (la fenêtre de télécommande du logiciel de musique) et bouton « Mode musical ».
 
 Le bouton « Mode musical » n'existe QUE pour un logiciel qui a une partie musique / DAW
 (FL Studio, Ableton, REAPER, Cubase…) : pour une application seulement vocale (Discord, Zoom,
@@ -11,25 +11,28 @@ core/app_detector.py (`music_button_state`) ; ce widget n'en applique que le ré
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from core.app_detector import SOURCE_DETECTED, SOURCE_SELECTED, ActiveApp, MusicButtonState
-from core.layout_manager import MODE_STANDALONE, layout_choices
+from core.layout_manager import MODE_STANDALONE
 
 MODE_TEXT = {
     MODE_STANDALONE: ("MODE B · AUTONOME", "Sans Voicemeeter : volumes de Windows et pistes de FL Studio. "
-                      "Réglages → Layout et Apparence pour changer de mode."),
+                      "Réglages → Mode et thème pour changer de mode."),
 }
 MODE_A_TEXT = ("MODE A · VOICEMEETER", "Voicemeeter fait le mixage. "
-               "Réglages → Layout et Apparence pour changer de mode.")
+               "Réglages → Mode et thème pour changer de mode.")
 MUSIC_LABEL = "♪  Mode musical"
+STUDIO_LABEL = "Studio"
+STUDIO_TIP = ("Ouvre le Studio : une fenêtre à part pour piloter ton logiciel de musique (FL Studio, Cubase, "
+              "Ableton…) : transport, rack, playlist, mixer des pistes.")
 
 
 def app_text(active: ActiveApp) -> tuple[str, str]:
     """(texte, info-bulle) de la pastille du logiciel suivi."""
     if active.app is None:
         return ("Aucun logiciel reconnu",
-                "Aucun logiciel audio connu n'est détecté. Choisis-en un dans Réglages → Layout et Apparence.")
+                "Aucun logiciel audio connu n'est détecté. Choisis-en un dans Réglages → Mode et thème.")
     how = {SOURCE_SELECTED: "choisi dans les réglages", SOURCE_DETECTED: "détecté automatiquement"}.get(
         active.source, "")
     state = "en cours" if active.running else "pas encore lancé"
@@ -39,7 +42,7 @@ def app_text(active: ActiveApp) -> tuple[str, str]:
 
 class ActionBar(QFrame):
     musicToggled = Signal(bool)          # clic sur « Mode musical » (état demandé)
-    layoutChosen = Signal(str)           # clé de disposition choisie, ou « auto »
+    studioRequested = Signal()           # clic sur « Studio » : ouvrir la fenêtre Studio
     settingsRequested = Signal()         # clic sur la pastille du logiciel
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -62,16 +65,12 @@ class ActionBar(QFrame):
 
         row.addStretch(1)
 
-        caption = QLabel("Disposition")
-        caption.setObjectName("barLabel")
-        row.addWidget(caption)
-        self.layout_choice = QComboBox()
-        self.layout_choice.setObjectName("layoutChoice")
-        self.layout_choice.setToolTip("Disposition de la console : « Auto » suit le logiciel détecté.")
-        for key, label in layout_choices():
-            self.layout_choice.addItem(label, key)
-        self.layout_choice.currentIndexChanged.connect(self._on_layout_index)
-        row.addWidget(self.layout_choice)
+        self.studio_button = QPushButton(STUDIO_LABEL)
+        self.studio_button.setObjectName("studioButton")
+        self.studio_button.setToolTip(STUDIO_TIP)
+        self.studio_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.studio_button.clicked.connect(lambda _checked=False: self.studioRequested.emit())
+        row.addWidget(self.studio_button)
 
         self.sync_led = QLabel("●")
         self.sync_led.setObjectName("syncLed")
@@ -98,14 +97,6 @@ class ActionBar(QFrame):
         self.app_chip.setText(text)
         self.app_chip.setToolTip(tip)
 
-    def set_layout_choice(self, key: str) -> None:
-        """Disposition affichée par le sélecteur, sans déclencher de choix."""
-        index = self.layout_choice.findData(key)
-        if index >= 0 and index != self.layout_choice.currentIndex():
-            blocked = self.layout_choice.blockSignals(True)
-            self.layout_choice.setCurrentIndex(index)
-            self.layout_choice.blockSignals(blocked)
-
     def set_music_state(self, state: MusicButtonState) -> None:
         """Visible seulement avec un logiciel musical ; coché tant que le mode musical est actif."""
         self.music_button.setVisible(state.visible)
@@ -124,7 +115,3 @@ class ActionBar(QFrame):
                                  else "Synchronisation du mixer : en attente de FL Studio")
         self.sync_led.style().unpolish(self.sync_led)       # la QSS relit la propriété « on »
         self.sync_led.style().polish(self.sync_led)
-
-    # --------------------------------------------------------------- signaux
-    def _on_layout_index(self, _index: int) -> None:
-        self.layoutChosen.emit(str(self.layout_choice.currentData()))

@@ -9,7 +9,7 @@ La fenêtre n'a qu'à lui transmettre les événements (une détection de logici
 Il réunit les briques déjà testées chacune de son côté :
 
 - le logiciel suivi (`ActiveAppTracker`, choix `session.app`) ;
-- la disposition effective (`LayoutManager` : mode musical, suivi du logiciel, choix manuel) ;
+- la disposition effective (`LayoutManager` : console, ou arrangement studio en mode musical) ;
 - le mode musical (`MusicModeController`) : n'existe QUE pour un logiciel qui a une partie
   musique / DAW, et est quitté d'office quand ce logiciel disparaît ;
 - en mode B (autonome), le profil des canaux d'après le logiciel suivi (`profile_import`).
@@ -132,15 +132,6 @@ class SessionCoordinator:
         transition = self.music.request(wanted, self.active)
         preset_changed = self._refresh_preset()
         return SessionChange(False, preset_changed, transition if transition.message else None)
-
-    def set_layout(self, choice: str) -> SessionChange:
-        """Choix de la disposition (barre d'actions, réglages) : « auto » ou une disposition."""
-        self.layouts.select(choice)
-        return SessionChange(False, self._refresh_preset())
-
-    def set_follow_software(self, follow: bool) -> SessionChange:
-        self.layouts.set_follow_software(follow)
-        return SessionChange(False, self._refresh_preset())
 
     def reload_profile(self) -> SessionChange:
         """Nouveau profil choisi (fichier importé ou retiré) : mode B seulement."""

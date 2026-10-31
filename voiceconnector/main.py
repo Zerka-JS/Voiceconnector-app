@@ -811,7 +811,7 @@ def run_selftest(app: QApplication, cfg: dict, window: MainWindow, vm, reaper, p
 
     for path, widget in shots.items():
         capture(path, widget)
-    for title, suffix in (("Canaux", "canaux"), ("Layout et Apparence", "layout"),
+    for title, suffix in (("Canaux", "canaux"), ("Mode et thème", "layout"),
                           ("Apparence", "apparence"), ("À propos", "apropos")):   # autres onglets des réglages
         index = next(i for i in range(settings.tabs.count()) if settings.tabs.tabText(i) == title)
         settings.tabs.setCurrentIndex(index)

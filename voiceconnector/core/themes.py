@@ -3,7 +3,7 @@ Thèmes globaux de l'interface (données pures, sans Qt).
 
 Un thème global habille toute la console : couleurs de l'interface, peau des
 tranches (strips), formes (rayons des coins) et arrière-plan. Les quatre
-thèmes proposés dans Réglages → « Layout et Apparence » :
+thèmes proposés dans Réglages → « Mode et thème » :
 
 - retro      : Rétro — écran VFD, néons violets, grille « Neon Wave Synth » ;
 - cyberpunk  : Futuriste — HUD sombre, cyan électrique et jaune néon ;
@@ -66,7 +66,6 @@ class ThemeSpec:
     extras: Mapping[str, str] = field(default_factory=dict)
     shape: Mapping[str, int] = field(default_factory=dict)
     backdrop: str = "slate"
-    suggested_layout: str | None = None    # disposition qui lui va bien (indication)
 
     def values(self) -> dict[str, str | int]:
         """Toutes les variables de style que ce thème impose."""
@@ -91,7 +90,7 @@ class ThemeSpec:
 RETRO = ThemeSpec(
     key="retro", name="Rétro — VFD / Neon Wave Synth",
     tagline="Écran VFD turquoise, néons violets et grille synthwave.",
-    dark=True, accent="#33f0d8", backdrop="synthwave", suggested_layout="streaming",
+    dark=True, accent="#33f0d8", backdrop="synthwave",
     palette={
         "BG_WINDOW": "#0a0618", "BG_GLOW": "#2a0f4d", "BG_COLUMN": "#130a29",
         "BG_SECTION": "#0d071f", "BORDER_COLUMN": "#3b2272", "BORDER_SECTION": "#2a1952",
@@ -123,7 +122,7 @@ RETRO = ThemeSpec(
 CYBERPUNK = ThemeSpec(
     key="cyberpunk", name="Futuriste — Cyberpunk",
     tagline="Interface HUD sombre, cyan électrique, accents jaune néon.",
-    dark=True, accent="#00e5ff", backdrop="cyber", suggested_layout="streaming",
+    dark=True, accent="#00e5ff", backdrop="cyber",
     palette={
         "BG_WINDOW": "#04060d", "BG_GLOW": "#0b1f3a", "BG_COLUMN": "#0a1020",
         "BG_SECTION": "#070b16", "BORDER_COLUMN": "#1c3a52", "BORDER_SECTION": "#142c40",
@@ -155,7 +154,7 @@ CYBERPUNK = ThemeSpec(
 FLAT = ThemeSpec(
     key="flat", name="Épuré — Minimaliste (Flat Modern)",
     tagline="Clair, aplats nets, coins doux, aucun ornement.",
-    dark=False, accent="#2563eb", backdrop="flat", suggested_layout="podcast",
+    dark=False, accent="#2563eb", backdrop="flat",
     palette={
         "BG_WINDOW": "#eef1f5", "BG_GLOW": "#ffffff", "BG_COLUMN": "#ffffff",
         "BG_SECTION": "#f4f6f9", "BORDER_COLUMN": "#d9e0ea", "BORDER_SECTION": "#e6ebf2",
@@ -187,7 +186,7 @@ FLAT = ThemeSpec(
 SLATE = ThemeSpec(
     key="slate", name="Studio Pro — Dark Slate",
     tagline="Gris ardoise de studio, accent bleu, façon station audio.",
-    dark=True, accent="#4aa8ff", backdrop="slate", suggested_layout="fl_studio",
+    dark=True, accent="#4aa8ff", backdrop="slate",
     palette={
         "BG_WINDOW": "#0e1521", "BG_GLOW": "#16233a", "BG_COLUMN": "#162030",
         "BG_SECTION": "#101826", "BORDER_COLUMN": "#2d3d57", "BORDER_SECTION": "#223149",

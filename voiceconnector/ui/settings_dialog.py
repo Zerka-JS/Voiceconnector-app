@@ -4,7 +4,7 @@ Réglages de VoiceConnector, en onglets :
                            chemins des moteurs
   - Canaux               : noms des canaux
   - Audio                : carte son de REAPER, affichage des moteurs, options
-  - Layout et Apparence  : mode (A : Voicemeeter + application vocale, B : autonome), thème global
+  - Mode et thème  : mode (A : Voicemeeter + application vocale, B : autonome), thème global
                            (Rétro, Futuriste, Épuré, Studio Pro), disposition (Standard, FL Studio / MAO,
                            Streaming / Broadcast, Podcasting / Voix), logiciel suivi (voir layout_settings.py)
   - Apparence            : couleur d'accent, image d'arrière-plan, transparence des panneaux, fenêtre,
@@ -60,7 +60,7 @@ TAB_TITLES = {
     SETTINGS_TAB_GENERAL: "Général",
     SETTINGS_TAB_CHANNELS: "Canaux",
     SETTINGS_TAB_AUDIO: "Audio",
-    SETTINGS_TAB_LAYOUT: "Layout et Apparence",
+    SETTINGS_TAB_LAYOUT: "Mode et thème",
     SETTINGS_TAB_APPEARANCE: "Apparence",
     SETTINGS_TAB_COLORS: "Couleurs",
     SETTINGS_TAB_ABOUT: "À propos",
@@ -792,7 +792,7 @@ class SettingsDialog(QDialog):
         self.layout_tab.show_theme()
 
     def _on_layout_appearance(self) -> None:
-        """Un thème global vient d'être choisi dans « Layout et Apparence » : les pastilles de couleur
+        """Un thème global vient d'être choisi dans « Mode et thème » : les pastilles de couleur
         de l'onglet « Apparence » suivent, puis la console se repeint."""
         self._show_theme()
         self.appearanceChanged.emit()

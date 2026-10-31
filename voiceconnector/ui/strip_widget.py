@@ -9,7 +9,7 @@ carré au petit cube rouge de Voicemeeter), icône de source + Solo / Muet (et
 La tranche ne parle à aucun moteur : elle émet des signaux, la fenêtre
 principale les relaie à Voicemeeter / REAPER, et lui renvoie l'état réel.
 
-Les dispositions (Réglages → Layout et Apparence) changent ce que montre la tranche sans la
+Les dispositions (Réglages → Mode et thème) changent ce que montre la tranche sans la
 reconstruire : `apply_style(style, libellé)` affiche ou masque le panoramique (carré Intellipan,
 curseur large ou rien), le trim, le compresseur et le gate, l'égaliseur rapide et sa touche
 « Clarté », les effets et le routage, et passe le VU en haute précision. Dans la disposition
@@ -420,7 +420,7 @@ class StripWidget(QFrame):
     trimChanged = Signal(int, float)             # entrées matérielles, dB
     compChanged = Signal(int, float)             # entrées virtuelles, 0…10
     gateChanged = Signal(int, float)             # entrées virtuelles, 0…10
-    # Dispositions (Layout et Apparence) et mode autonome
+    # Dispositions (Mode et thème) et mode autonome
     eqChanged = Signal(int, int, float)          # égaliseur rapide : (strip, bande 0…2, dB)
     assignRequested = Signal(int)                # mode autonome : assigner une application à la tranche
     unassignRequested = Signal(int)

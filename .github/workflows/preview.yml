@@ -46,22 +46,27 @@ jobs:
           python main.py --mode b --selftest preview/modeb/console.png 2>&1 | tail -40 || true
           ls -la preview preview/modeb
           cat preview/console.txt || true
-      - name: Diagnostic - sortie propre de chaque fichier de tests Qt
+      - name: Diagnostic - quel test de la fenêtre Studio plante ?
         env:
           APPDATA: ${{ runner.temp }}/appdata_diag
         run: |
           python -m pip install -q pytest
           mkdir -p "$APPDATA"
-          for t in tests/test_studio_widgets.py tests/test_studio_ui.py tests/test_ui.py tests/test_hardware_ui.py tests/test_modes_ui.py tests/test_colors_ui.py; do
-            name=$(basename "$t" .py)
+          python -m pytest --collect-only -q -p no:cacheprovider tests/test_studio_ui.py 2>/dev/null | grep "::" > ids.txt || true
+          wc -l ids.txt
+          while read -r id; do
             set +e
-            VC_NO_QT_TEARDOWN=1 python -X faulthandler -m pytest -q -p no:cacheprovider "$t" > diag_raw.txt 2>&1
-            raw=$?
-            python -X faulthandler -m pytest -q -p no:cacheprovider "$t" > diag.txt 2>&1
+            python -X faulthandler -m pytest -q -p no:cacheprovider "$id" > diag.txt 2>&1
             code=$?
             set -e
-            echo "::notice title=diag_$name::sans_nettoyage=$raw avec_nettoyage=$code | $(tail -3 diag_raw.txt | tr '\n' ' ' | tr -d '%') | $(tail -3 diag.txt | tr '\n' ' ' | tr -d '%')"
-          done
+            short=$(echo "$id" | sed 's/.*:://' | cut -c1-48)
+            frames=$(grep -E "^\s+File " diag.txt | head -12 | sed 's/^ *//' | tr '\n' ';' | tr -d '%')
+            if [ "$code" != "0" ]; then
+              echo "::error title=plante_$short::exit=$code $frames"
+            else
+              echo "::notice title=ok_$short::exit=0"
+            fi
+          done < ids.txt
       - name: Publier les captures
         if: always()
         env:

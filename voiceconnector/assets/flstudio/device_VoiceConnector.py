@@ -7,7 +7,7 @@ Script MIDI de FL Studio pour VoiceConnector. Il fait deux choses, dans les deux
 - relier le Studio de VoiceConnector à FL Studio : transport et tempo, channel rack (canaux,
   pas du séquenceur), patterns et pistes de la playlist.
 
-Installation (VoiceConnector peut la faire pour toi : Réglages -> Layout et Apparence ->
+Installation (VoiceConnector peut la faire pour toi : Réglages -> Mode et thème ->
 « Installer le script FL Studio ») :
 
 1. Copie ce fichier dans  Documents\\Image-Line\\FL Studio\\Settings\\Hardware\\VoiceConnector\\

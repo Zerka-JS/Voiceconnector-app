@@ -170,7 +170,7 @@ def test_the_settings_choose_the_layout_and_the_followed_software(qapp, console)
     dialog.sessionChanged.connect(window._apply_change)
     try:
         tab = dialog.layout_tab
-        assert dialog.tabs.tabText(dialog.tabs.currentIndex()) == "Layout et Apparence"
+        assert dialog.tabs.tabText(dialog.tabs.currentIndex()) == "Mode et thème"
         tab.layout_choice.setCurrentIndex(tab.layout_choice.findData("streaming"))
         assert session.preset == "streaming" and session.layouts.selector_value == "streaming"
         assert list(tab.role_choices) == ["mic", "game", "discord", "music"]
