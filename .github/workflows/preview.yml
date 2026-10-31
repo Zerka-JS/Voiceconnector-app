@@ -46,20 +46,11 @@ jobs:
           python main.py --mode b --selftest preview/modeb/console.png 2>&1 | tail -40 || true
           ls -la preview preview/modeb
           cat preview/console.txt || true
-      - name: Diagnostic - quelle partie de la fenêtre d'aide plante à la sortie ?
+      - name: Diagnostic pytest - où plante la sortie ?
+        continue-on-error: true
         run: |
-          for stage in rien dialog dialog_sans_style combo labels boutons complet complet_ferme complet_detruit complet_detruit_session; do
-            set +e
-            python -X faulthandler ../.github/diag/diag_dialog.py "$stage" > diag.txt 2>&1
-            code=$?
-            set -e
-            tail=$(tail -3 diag.txt | tr '\n' ' ' | tr -d '%')
-            if [ "$code" != "0" ]; then
-              echo "::error title=plante_$stage::exit=$code $tail"
-            else
-              echo "::notice title=ok_$stage::exit=0"
-            fi
-          done
+          python -m pip install -q pytest
+          python ../.github/diag/diag_pytest.py
       - name: Publier les captures
         if: always()
         env:
