@@ -93,7 +93,7 @@ class StudioSetupDialog(QDialog):
             self.software.addItem(target.name, target.key)
         row = self.software.findData(session.guide_target.key)
         self.software.setCurrentIndex(max(0, row))
-        self.software.activated.connect(lambda _row: self.refresh())
+        self.software.activated.connect(self.refresh)             # méthode liée : pas de cycle lambda → fenêtre
         pick.addWidget(self.software, 1)
         column.addLayout(pick)
 
@@ -118,9 +118,9 @@ class StudioSetupDialog(QDialog):
 
         buttons = QHBoxLayout()
         self.install = QPushButton("Installer le script FL Studio")
-        self.install.clicked.connect(lambda _checked=False: self.install_script())
+        self.install.clicked.connect(self.install_script)
         self.recheck = QPushButton("Vérifier de nouveau")
-        self.recheck.clicked.connect(lambda _checked=False: self.refresh())
+        self.recheck.clicked.connect(self.refresh)
         self.close_button = QPushButton("Fermer")
         self.close_button.clicked.connect(self.accept)
         buttons.addWidget(self.install)
@@ -220,10 +220,10 @@ class StudioWindow(QWidget):
         bar.addWidget(self.project, 1)
         self.configure = QPushButton("Configurer…")
         self.configure.setToolTip("Ce qui est prêt, ce qui manque, et les étapes pour relier le logiciel")
-        self.configure.clicked.connect(lambda _checked=False: self.show_setup())
+        self.configure.clicked.connect(self.show_setup)
         self.reconnect = QPushButton("Reconnecter")
         self.reconnect.setToolTip("Retente la liaison avec le logiciel")
-        self.reconnect.clicked.connect(lambda _checked=False: self.reconnect_now())
+        self.reconnect.clicked.connect(self.reconnect_now)
         for button in (self.configure, self.reconnect):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             bar.addWidget(button)
@@ -404,7 +404,10 @@ class StudioWindow(QWidget):
 
     def show_setup(self) -> None:
         dialog = StudioSetupDialog(self.session, self)
-        dialog.exec()
+        try:
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
         self.reconnect_now()
 
     # ------------------------------------------------------------ géométrie
