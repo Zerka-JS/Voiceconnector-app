@@ -6,10 +6,11 @@ Console de mixage unique pour Windows : elle pilote **Voicemeeter Potato ou Bana
 (routing, volumes, mutes, VU-mètres) et **REAPER** (effets VST par strip), qui tournent
 tous les deux cachés en arrière-plan. L'utilisateur ne voit que la console.
 
-Elle fonctionne aussi **sans Voicemeeter** (mode B, autonome), se range selon le logiciel audio détecté
-(FL Studio, Discord, OBS…), propose quatre thèmes et trois dispositions (FL Studio / MAO,
-Streaming / Broadcast, Podcasting / Voix) et, pour un logiciel musical, un **Mode musical** qui synchronise
-son mixer : voir [Deux modes, dispositions et thèmes](#deux-modes-dispositions-et-thèmes).
+Elle fonctionne aussi **sans Voicemeeter** (mode B, autonome), suit le logiciel audio détecté
+(FL Studio, Discord, OBS…), propose quatre thèmes, des **couleurs réglables élément par élément**, un
+**lecteur de musique** relié aux contrôles média de Windows, une fenêtre **Studio** qui pilote le vrai
+logiciel de musique (FL Studio, Cubase…) et, pour un logiciel musical, un **Mode musical** qui synchronise
+son mixer : voir [Deux modes, thèmes, Studio et mode musical](#deux-modes-thèmes-studio-et-mode-musical).
 
 Développé par **Zerka**.
 
@@ -73,6 +74,10 @@ sur son insert (désactivable dans ⚙ → Options).
 | Bouton Apps (strips virtuelles) | volume, mute et niveau de chaque application qui joue sur la strip |
 | Pill « Mise à jour » (Master) | apparaît quand une nouvelle version est en ligne ; clic pour l'installer |
 | Muet | coupe la strip |
+| Solo (« S », à gauche de Muet) | seule cette strip est entendue ; à la fin du solo, les muets d'avant sont rétablis (avec FL Studio synchronisé : le solo de la piste) |
+| Compr. / Gate | compresseur et gate des entrées matérielles de Voicemeeter ; le réglage est mémorisé |
+| MUTE ALL / EJECT ALL (Master) | coupe (ou rétablit) toutes les entrées / les déconnecte de tous les bus (avec confirmation) |
+| Musique en cours (Master) | pochette, titre, précédent / lecture-pause / suivant de l'application qui joue |
 | Pill d'effet | clic = ouvrir/fermer l'interface du plugin, clic droit = bypass / supprimer ; point ambre = plugin qui retarde la voix |
 | Emplacement vide (« + ») | ajouter un effet (REAPER, Equalizer APO) ; FL Studio : l'afficher |
 | Badge FX ⏻ | bypass de toute la chaîne d'effets de la strip (FL Studio : envoi à l'insert) |
@@ -81,18 +86,19 @@ sur son insert (désactivable dans ⚙ → Options).
 | Badge de connexion | vert = tout répond ; rouge = le moteur d'effets ou Voicemeeter ne répond plus |
 | Bouton Projet | projet REAPER ouvert, clic pour en changer ; FL Studio / Equalizer APO : l'ouvrir |
 | Bouton – (Master) | réduire VoiceConnector (barre des tâches, ou zone de notification si activé) |
-| Barre d'actions | mode, logiciel suivi (clic = réglages), disposition, bouton **Mode musical** (logiciels musicaux seulement) |
-| Bouton ⚙ (Master) | réglages : Général, Canaux, Audio, Mode et thème, Apparence, À propos |
+| Barre d'actions | mode, logiciel suivi (clic = réglages), bouton **Studio**, bouton **Mode musical** (logiciels musicaux seulement) |
+| Bouton ⚙ (Master) | réglages : Général, Canaux, Audio, Mode et thème, Apparence, Couleurs, À propos |
 
 `VoiceConnector.exe --demo` ouvre la console avec des moteurs simulés (sans Voicemeeter ni REAPER)
 pour la découvrir ; `--demo --host flstudio` (ou `apo`, `none`) montre les autres moteurs
 d'effets, et `--demo --mode b` le mode autonome. La démo « voit » FL Studio, Discord et OBS.
 
-## Deux modes, dispositions et thèmes
+## Deux modes, thèmes, Studio et mode musical
 
-La **barre d'actions**, sous le haut de la fenêtre, montre le mode en cours (A ou B), le **logiciel audio
-suivi** (clic = réglages), le choix de la **disposition** et, seulement quand le logiciel suivi a une
-partie musique, le bouton **Mode musical**. Tout se règle dans ⚙ → **Mode et thème**.
+La console est une seule interface : une rangée de strips (cartes sombres aux coins arrondis) et le panneau
+Master à droite (casque, musique en cours, VU-mètres). La **barre d'actions**, en haut, montre le mode en
+cours (A ou B), le **logiciel audio suivi** (clic = réglages), le bouton **Studio** et, seulement quand le
+logiciel suivi a une partie musique, le bouton **Mode musical**. Tout se règle dans ⚙ → **Mode et thème**.
 
 ### Mode A — Voicemeeter + application vocale (par défaut)
 
@@ -101,8 +107,8 @@ voix ou d'analyse** : Discord, OBS, TeamSpeak, Audacity, Zoom… (⚙ → Mode e
 vocale*). Deux transports :
 
 - **Bus Voicemeeter** (par défaut) : le micro part sur un bus (B1 pour un chat vocal, B2 pour un logiciel
-  de diffusion ou d'édition, ou le bouton de la matrice qui porte le nom de l'application, ou le bus de
-  ton choix) et l'application le choisit comme micro (« Voicemeeter Out B1 »…). Le routage conseillé est
+  de diffusion ou d'édition, ou l'envoi de strip (Monitor, Mic Out, Discord, Obs) qui porte le nom de
+  l'application, ou le bus de ton choix) et l'application le choisit comme micro (« Voicemeeter Out B1 »…). Le routage conseillé est
   décrit étape par étape, et **n'est appliqué que si tu cliques sur « Appliquer le routage »** : le micro
   y est envoyé, le son que l'application ramène elle-même est coupé du bus (pas d'écho).
 - **Flux VBAN** (expérimental) : Voicemeeter émet un flux réseau vers un récepteur VBAN ; ses réglages
@@ -124,21 +130,6 @@ n'est pas lancée est grisée. Il n'y a ni routage, ni égaliseur, ni effets dan
 dans ⚙ → Mode et thème → *Mode de fonctionnement* (puis **Redémarrer VoiceConnector**), ou avec
 `VoiceConnector.exe --mode a` / `--mode b`.
 
-### Dispositions
-
-| Disposition | Contenu |
-|---|---|
-| **Standard** | la console d'origine : entrées matérielles, entrées virtuelles, matrice de routage |
-| **FL Studio / MAO** | Master à gauche, Bus Batterie, Synths, FX, Micro ; panoramique large, VU-mètres haute précision (graduation en dB) |
-| **Streaming / Broadcast** | Micro, Game, Discord / Vocal, Music |
-| **Podcasting / Voix** | Voix, Invité / Appel, Musique / Jingles ; égaliseur rapide (Graves, Médiums, Aigus et bouton **Clarté**), Compresseur et Gate intégrés à chaque canal |
-| **Auto** | suit le logiciel suivi (FL Studio → FL Studio / MAO, Discord → Streaming…) |
-
-Les emplacements d'une disposition sont rangés d'après le type et le nom des canaux ; chacun peut être donné
-à un canal précis dans ⚙ → Mode et thème. Compresseur, Gate et égaliseur rapide existent sur les
-entrées **matérielles** de Voicemeeter (celles que son API expose) ; en mode B, seules les dispositions
-(rangement, panoramique, VU) s'appliquent.
-
 ### Thèmes
 
 ⚙ → Mode et thème → *Thème de l'interface* :
@@ -150,7 +141,10 @@ entrées **matérielles** de Voicemeeter (celles que son API expose) ; en mode B
 | **Épuré** | Minimaliste (Flat Modern) : clair, aplats nets, coins doux, aucun ornement |
 | **Studio Pro** | Dark Slate : gris ardoise de studio, accent bleu, façon station audio |
 
-Les couleurs d'accent d'origine (onglet *Apparence*) restent disponibles et remplacent le thème global.
+Les couleurs d'accent d'origine (onglet *Apparence*) restent disponibles et remplacent le thème global. Un
+thème ne change que les couleurs, les coins et le décor : la console garde la même disposition. L'onglet
+*Couleurs* règle ensuite la couleur de chaque élément (envois, fader, VU-mètres, Muet, Solo, effets,
+Intellipan, noms, fond des panneaux, lecteur de musique…), pour toute la console, une strip ou le Master.
 
 ### Mode musical / Production
 
@@ -158,7 +152,9 @@ Le bouton **Mode musical** n'existe **que** si le logiciel suivi ou détecté a 
 Ableton Live, REAPER, Cubase… Il est totalement caché pour Discord, Zoom, Spotify, OBS…, et le mode s'arrête
 tout seul si le logiciel musical disparaît. Quand il est actif :
 
-- la disposition **FL Studio / MAO** est appliquée (Master à gauche, Bus Batterie, Synths, FX) ;
+- la console prend l'**arrangement studio** : Master, Bus Batterie, Synths, FX, Micro (panoramique large,
+  VU-mètres haute précision en dB) ; les autres canaux sont mis de côté, et chaque emplacement peut être donné
+  à un canal précis dans ⚙ → Mode et thème. En quittant le mode, la console redevient comme avant ;
 - le traitement de la voix inutile est **libéré** pour réduire la latence : insert Voicemeeter, compresseur
   et gate des canaux vocaux ou cachés (leurs réglages sont rétablis en quittant le mode) ;
 - les consignes du **retour ASIO direct** s'affichent : dans le logiciel musical, choisis ton pilote ASIO
@@ -179,6 +175,33 @@ indique ce qui manque et installe le script.
 
 Sans loopMIDI ou sans les modules `mido` et `python-rtmidi` (inclus dans l'exe), tout le reste marche :
 seule la synchronisation du mixer est absente, et le bouton le dit.
+
+### Studio : la télécommande du vrai logiciel de musique
+
+Le bouton **Studio** de la barre d'actions (toujours visible) ouvre une **fenêtre à part**, dans l'esprit
+d'une station de production : transport (début, lecture, arrêt, enregistrement, métronome, tempo, position),
+**channel rack** avec séquenceur pas à pas, **playlist**. Ce n'est pas un deuxième logiciel de musique : la
+fenêtre **pilote le vrai logiciel** et affiche ce qu'il renvoie.
+
+| Logiciel | Liaison | Ce que le Studio montre |
+|---|---|---|
+| **FL Studio** | le script MIDI de VoiceConnector, par deux ports loopMIDI (« VoiceConnector FL » et « VoiceConnector VC », ceux de la synchronisation du mixer) | transport, tempo, channel rack et pas du séquenceur, patterns, playlist |
+| **Cubase, Nuendo, Studio One, Ableton Live, REAPER, Bitwig, Reason, Cakewalk, Ardour** | une surface **Mackie Control**, par deux ports loopMIDI (« VoiceConnector DAW » et « VoiceConnector Retour ») | transport, métronome, boucle, et huit pistes à la fois : nom, fader, panoramique, muet, solo, armement, niveau |
+
+Ce que Mackie Control ne sait pas faire (channel rack, pas du séquenceur, patterns, tempo libre) est grisé
+pour ces logiciels. Sans logiciel de musique lancé, le Studio s'ouvre quand même, en **démonstration** (projet
+fictif) ; dès que le logiciel démarre, la liaison s'ouvre toute seule. Le menu *Logiciel* choisit celui qu'on
+pilote (automatique : celui qui est détecté), et **Configurer…** montre, pas à pas, ce qu'il reste à régler
+dans le logiciel et dans loopMIDI. La synchronisation du mixer et le Studio partagent les mêmes ports de
+FL Studio.
+
+### Musique en cours
+
+Le Master affiche la **musique en cours** (pochette, titre, artiste) avec **précédent / lecture-pause /
+suivant**. Ce sont les contrôles média de Windows (ceux de l'écran de verrouillage et du volume) : Spotify,
+Deezer, un navigateur, le Lecteur multimédia, VLC… sans rien régler dans ces applications. Le bloc se cache
+tout seul quand Windows ne propose pas ces contrôles, et se désactive dans ⚙ → Apparence → *Afficher la
+musique en cours dans le Master*.
 
 ## Moteurs d'effets : REAPER, FL Studio, Equalizer APO ou aucun
 
@@ -396,10 +419,13 @@ voiceconnector/
 │   ├── reaper_ctrl.py      liaison avec le pont Lua (effets, pistes, projet, carte son)
 │   ├── vst_scanner.py      liste des plugins (REAPER, cache, dossiers VST3)
 │   ├── app_detector.py     catalogue et détection des logiciels audio (FL Studio, Discord, OBS…)
-│   ├── layout_manager.py   dispositions (Standard, FL Studio / MAO, Streaming, Podcast) et plan des tranches
+│   ├── layout_manager.py   la console et l'arrangement studio du mode musical, plan des tranches
 │   ├── themes.py           les quatre thèmes globaux (Rétro, Futuriste, Épuré, Studio Pro)
 │   ├── session_mode.py     réglages de session, mode musical, traitement voix libéré
-│   ├── session_coordinator.py  le « cerveau » de la fenêtre : logiciel suivi, mode musical, disposition
+│   ├── session_coordinator.py  le « cerveau » de la fenêtre : logiciel suivi, mode musical, arrangement
+│   ├── media.py            musique en cours (contrôles média de Windows, démo)
+│   ├── studio_session.py   le Studio : logiciel piloté, liaison (FL Studio, Mackie Control) ou démonstration
+│   ├── mcu_link.py / mcu_proto.py  liaison Mackie Control ; fl_studio_link.py : liaison FL Studio
 │   ├── mixer_router.py     routage vers l'application vocale (bus ou VBAN)
 │   ├── profile_import.py   profils de canaux du mode B (import / export JSON)
 │   ├── standalone_engine.py / standalone_ctrl.py  console du mode B (volumes de Windows, FL Studio)
@@ -411,7 +437,10 @@ voiceconnector/
 ├── ui/                     fenêtre, strips, master, knob/fader/VU dessinés, dialogues
 │   ├── main_window.py      fenêtre principale (applique les décisions du coordinateur)
 │   ├── settings_dialog.py  réglages (onglets) ; layout_settings.py : onglet « Mode et thème »
-│   ├── action_bar.py       barre d'actions (mode, logiciel, disposition, Mode musical)
+│   ├── action_bar.py       barre d'actions (mode, logiciel, Studio, Mode musical)
+│   ├── strip_widget.py / master_widget.py  une strip (carte sombre) ; le Master (casque, musique, VU)
+│   ├── media_widget.py     le lecteur de musique du Master
+│   ├── studio_window.py    la fenêtre Studio (transport, channel rack, playlist)
 │   └── wide_pan.py, backdrops.py  panoramique large, décors des thèmes globaux
 ├── assets/                 logo et icône VoiceConnector, police Inter, pont Lua, script MIDI de FL Studio
 ├── tests/                  tests (logique, pont Lua, interface, Win32)
