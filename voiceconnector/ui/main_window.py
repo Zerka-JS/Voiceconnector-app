@@ -1,22 +1,23 @@
 """
-Fenêtre principale « rack VoiceConnector » : logo, entrées matérielles et
-virtuelles (tranches crème), matrice de routage, sorties matérielles et
-panneau Master, plus le câblage entre l'interface et les moteurs
-(Voicemeeter, REAPER, processus).
+Fenêtre principale de VoiceConnector (thème « Dark Studio Pro ») : une rangée de tranches (cartes sombres
+arrondies) et le panneau Master (casque, musique en cours, VU) à droite, sous une barre d'actions ;
+plus le câblage entre l'interface et les moteurs (Voicemeeter, REAPER, processus).
 
-Fenêtre « comme Voicemeeter » : taille compacte par défaut (strips + master,
-sans grand vide), position et taille mémorisées, réduction possible dans la
-zone de notification (icône à côté de l'horloge).
+Fenêtre « comme Voicemeeter » : taille compacte par défaut (strips + master, sans grand vide),
+position et taille mémorisées, réduction possible dans la zone de notification (icône à côté de
+l'horloge).
 
-Aussi : volume par application (bouton « Apps » des strips virtuelles) et
-mises à jour (vérification au démarrage puis régulière, pill dans le Master).
+Aussi : volume par application (bouton « Apps » des strips virtuelles), musique en cours (contrôles
+média de Windows, dans le Master) et mises à jour (vérification au démarrage puis régulière, pill
+dans le Master).
 
-Dispositions, logiciel suivi et mode musical : une barre d'actions (ui/action_bar.py) sous le
-haut de la fenêtre. Toutes les décisions viennent du coordinateur de session
-(core/session_coordinator.py, sans Qt) ; la fenêtre ne fait que les appliquer :
+Logiciel suivi et mode musical : une barre d'actions (ui/action_bar.py) sous le haut de la fenêtre,
+avec le bouton « Studio » qui ouvre la fenêtre du même nom (télécommande du vrai logiciel de musique).
+Toutes les décisions viennent du coordinateur de session (core/session_coordinator.py, sans Qt) ; la
+fenêtre ne fait que les appliquer :
 
-- `_relayout()` demande le plan de la disposition et réarrange les tranches déjà construites
-  (groupes, Master à gauche ou à droite, matrice et sorties montrées ou non) ;
+- `_relayout()` demande le plan de l'arrangement et range les tranches déjà construites (en mode
+  musical avec un logiciel de musique : l'arrangement studio, avec ses rôles) ;
 - le mode musical libère les traitements voix inutiles (insert Voicemeeter, compresseur / gate)
   et lance la synchronisation du mixer de FL Studio ;
 - en mode autonome (B), la console refait ses tranches quand le profil change.
@@ -31,9 +32,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QPointF, QProcess, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QRadialGradient
-from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
-                               QMainWindow, QMenu, QMessageBox, QSystemTrayIcon, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow,
+                               QMenu, QMessageBox, QSystemTrayIcon, QVBoxLayout, QWidget)
 from shiboken6 import delete as delete_now
 
 from core import config
@@ -42,42 +42,45 @@ from core.app_volume import AppVolumeBackend, NullAppVolumes
 from core.detect_service import DetectService
 from core.effects import HOST_APO, HOST_NONE, HOST_REAPER
 from core.fl_service import FlSyncService
-from core.fl_sync import connect_fl, mido_available, role_tracks
+from core.fl_sync import connect_fl, mido_available, open_transport, role_tracks
 from core.layout_manager import VU_PRECISION, LayoutPlan
+from core.media import MediaBackend, NullMedia
 from core.mixer_router import TRANSPORT_VBAN, VbanStream, VoiceRoute, choose_voice_app, plan_voice_route
 from core.process_manager import is_blank_project, reaper_project
 from core.profile_import import SOURCE_APP
 from core.session_coordinator import SessionChange, SessionCoordinator
 from core.session_mode import NO_RELEASE, DynamicsStash
+from core.studio_session import StudioSession
+from core.transport_hub import TransportHub
 from core.updater import UpdateChecker, UpdateInfo
 from core.voicemeeter_ctrl import DEFAULT_ROUTING, MixerLevels, MixerParams
 from ui import styles
 from ui.action_bar import ActionBar
 from ui.app_mixer import AppMixerPopup
 from ui.backdrops import paint_backdrop
-from ui.hardware_widgets import CHEEK_W, LedMatrix, paint_chassis
 from ui.layout_settings import LiveState
-from ui.master_widget import MasterWidget, OutputsPanel
+from ui.master_widget import MasterWidget
 from ui.project_dialog import ProjectDialog
 from ui.settings_dialog import SETTINGS_TAB_LAYOUT, SettingsDialog
 from ui.strip_widget import StripWidget
+from ui.studio_window import StudioWindow
 from ui.update_dialog import UpdateDialog
 from ui.vst_dialog import VstDialog
 
 log = logging.getLogger(__name__)
 
-STRIP_GAP = 0                 # les tranches se touchent (filet crème entre elles)
-PANEL_GAP = 10
+STRIP_GAP = 12
 FOCUS_PLUGIN_DELAY_MS = 400
 TOAST_MS = 4500
 TOAST_MS_PER_CHAR = 55        # un message long reste affiché plus longtemps
 TOAST_MAX_MS = 16000
 COMPACT_HEIGHT = 900          # hauteur de la fenêtre compacte (comme Voicemeeter)
+MEDIA_RESYNC_MS = 1500        # lecture / pause : état relu si l'application n'a pas réagi
 MIN_HEIGHT = 680
 TITLE_BAR_ALLOWANCE = 40      # barre de titre Windows (le cadre n'est connu qu'une fois affiché)
 # Augmenté quand la disposition des strips change (0.4 : Intellipan) : la
 # taille mémorisée, prévue pour l'ancienne disposition, est alors ignorée.
-LAYOUT_VERSION = 4            # 4 : barre d'actions, dispositions (Mode et thème)
+LAYOUT_VERSION = 5            # 5 : une rangée de tranches arrondies, Master avec la musique
 DEFAULT_DARKNESS = 0.45       # assombrissement de l'image d'arrière-plan
 DEFAULT_PANEL_OPACITY = 1.0
 APP_COUNT_MS = 2000           # nombre d'applications affiché sur les boutons « Apps »
@@ -128,14 +131,13 @@ def running_config(cfg: dict, vm) -> dict:
 
 
 class Background(QWidget):
-    """Arrière-plan : image personnalisée (cadrée pour remplir, assombrie), ou
-    noir profond avec un halo radial vert très sombre au centre-droit."""
+    """Arrière-plan : image personnalisée (cadrée pour remplir, assombrie), décor d'un thème global,
+    ou noir profond avec un halo radial vert très sombre au centre-droit."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._image: QPixmap | None = None
         self._scaled: QPixmap | None = None
-        self._chassis: QPixmap | None = None     # châssis rétro (cache, refait au redimensionnement)
         self._backdrop: QPixmap | None = None    # arrière-plan d'un thème global (cache)
         self._backdrop_key: tuple | None = None
         self._darkness = DEFAULT_DARKNESS
@@ -153,13 +155,11 @@ class Background(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         self._scaled = None
-        self._chassis = None
         self._backdrop = None
         super().resizeEvent(event)
 
     def invalidate(self) -> None:
         """Le thème a changé : les arrière-plans gardés en cache sont refaits au prochain dessin."""
-        self._chassis = None
         self._backdrop = None
         self._backdrop_key = None
         self.update()
@@ -173,15 +173,6 @@ class Background(QWidget):
             painter.end()
             self._backdrop, self._backdrop_key = pixmap, key
         return self._backdrop
-
-    def _chassis_pixmap(self) -> QPixmap:
-        if self._chassis is None or self._chassis.size() != self.size():
-            pixmap = QPixmap(self.size())
-            painter = QPainter(pixmap)
-            paint_chassis(painter, self.width(), self.height())
-            painter.end()
-            self._chassis = pixmap
-        return self._chassis
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -197,11 +188,8 @@ class Background(QWidget):
             p.fillRect(self.rect(), styles.color(styles.BG_BLACK, self._darkness))
             return
         spec = styles.global_spec()
-        if spec is not None:                      # Rétro, Futuriste, Épuré, Studio Pro
+        if spec is not None and spec.backdrop:    # Rétro, Futuriste, Épuré : leur décor ; Studio Pro : le halo
             p.drawPixmap(0, 0, self._backdrop_pixmap(spec.backdrop))
-            return
-        if styles.current_theme() == "vintage":
-            p.drawPixmap(0, 0, self._chassis_pixmap())
             return
         gradient = QRadialGradient(QPointF(w * 0.68, h * 0.42), max(w, h) * 0.62)
         gradient.setColorAt(0.0, styles.color(styles.BG_GLOW, 0.95))
@@ -265,7 +253,7 @@ class MainWindow(QMainWindow):
     def __init__(self, cfg: dict, vm, reaper, processes, persist: bool = True,
                  apps: AppVolumeBackend | None = None, updater: UpdateChecker | None = None,
                  parent: QWidget | None = None, *, session: SessionCoordinator | None = None,
-                 detector: DetectService | None = None) -> None:
+                 detector: DetectService | None = None, media: MediaBackend | None = None) -> None:
         super().__init__(parent)
         self._cfg = cfg
         self._persist = persist          # False en mode démo : la config n'est pas touchée
@@ -273,6 +261,7 @@ class MainWindow(QMainWindow):
         self._reaper = reaper
         self._processes = processes
         self._apps = apps or NullAppVolumes()
+        self._media = media or NullMedia()
         self._updater = updater
         self._update: UpdateInfo | None = None
         self._app_mixer: AppMixerPopup | None = None
@@ -299,9 +288,9 @@ class MainWindow(QMainWindow):
         self._fl_notice = ""                             # dernière raison d'échec déjà annoncée
         self._presence: tuple[bool, ...] = ()
         self._engine_status = ""
-        self._groups: list[QFrame] = []
+        self._studio: StudioWindow | None = None         # fenêtre Studio, quand elle est ouverte
+        self._hub: TransportHub | None = None           # ports MIDI de FL Studio, partagés (synchro, Studio)
         self.strips: list[StripWidget] = []
-        self.matrix: LedMatrix | None = None
 
         cfg.setdefault("ui", {})
         self.setWindowTitle(config.APP_NAME)
@@ -309,18 +298,18 @@ class MainWindow(QMainWindow):
         self.background = Background()
         self.setCentralWidget(self.background)
         outer = QVBoxLayout(self.background)
-        outer.setContentsMargins(CHEEK_W + 14, 8, CHEEK_W + 14, 14)
-        outer.setSpacing(6)
+        outer.setContentsMargins(12, 8, 14, 12)
+        outer.setSpacing(8)
 
         self.action_bar = ActionBar()
         self.action_bar.set_mode(self._standalone)
         self.action_bar.musicToggled.connect(self._on_music_toggled)
-        self.action_bar.layoutChosen.connect(self._on_layout_chosen)
-        self.action_bar.settingsRequested.connect(lambda: self.open_settings(SETTINGS_TAB_LAYOUT))
+        self.action_bar.studioRequested.connect(self.open_studio)
+        self.action_bar.settingsRequested.connect(self._open_mode_settings)
         outer.addWidget(self.action_bar)
 
         self.body = QHBoxLayout()
-        self.body.setSpacing(PANEL_GAP)
+        self.body.setSpacing(STRIP_GAP)
         outer.addLayout(self.body, 1)
 
         self._build_panels()
@@ -392,69 +381,49 @@ class MainWindow(QMainWindow):
             if updater.latest is not None:
                 self._on_update_available(updater.latest)
 
-    # ------------------------------------------------- rack : panneaux et tranches
+    # ------------------------------------------------- rack : Master et tranches
     def _build_panels(self) -> None:
-        """Panneaux qui ne changent pas avec la disposition : matrice, sorties et Master."""
-        self._matrix_panel = QFrame()
-        self._matrix_panel.setObjectName("darkGroup")
-        self._matrix_box = QVBoxLayout(self._matrix_panel)
-        self._matrix_box.setContentsMargins(6, 6, 6, 6)
-        self._matrix_box.setSpacing(4)
-        matrix_title = QLabel("VOICE CONNECTOR MATRIX")
-        matrix_title.setObjectName("matrixTitle")
-        matrix_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._matrix_box.addWidget(matrix_title)
-        self._matrix_box.addStretch(1)
-
-        self.outputs = OutputsPanel()
-        self.outputs.gainChanged.connect(self._on_output_gain)
-
+        """Le Master, à droite de la rangée de tranches (qui s'insèrent avant l'espace extensible)."""
+        self.body.addStretch(1)
         self.master = MasterWidget()
-        self.master.headphoneChanged.connect(self._on_master_gain)
+        self.master.headphoneChanged.connect(self._vm.set_headphone_gain)
         self.master.settingsRequested.connect(self.open_settings)
         self.master.projectRequested.connect(self._on_project_button)
         self.master.minimizeRequested.connect(self.minimize)
         self.master.updateRequested.connect(self.open_update)
         self.master.muteAllRequested.connect(self._mute_all)
         self.master.ejectAllRequested.connect(self._eject_all)
-        self.master.eqChanged.connect(self._on_eq)
-        self.master.tape.recordToggled.connect(self._on_record)
-        self.master.tape.playRequested.connect(self._on_play)
-        self.master.tape.stopRequested.connect(self._on_stop_tape)
-        self.master.tape.abToggled.connect(self._on_ab)
+        # Musique en cours (contrôles média de Windows)
+        self.master.media.previousRequested.connect(self._media.previous)
+        self.master.media.nextRequested.connect(self._media.next)
+        self.master.media.playPauseRequested.connect(self._on_media_play)
+        self._media.changed.connect(self.master.media.set_info)
         if self._standalone:
-            self.master.set_voicemeeter_tools(False)     # magnéto, égaliseur Intellipan, « eject » : propres à Voicemeeter
-            self.outputs.limit_to(1)                     # une seule sortie : le volume général de Windows
+            self.master.set_eject_available(False)       # « eject » déconnecte des bus : propre à Voicemeeter
+        self.body.addWidget(self.master)
 
-    def _routing(self) -> tuple[list[str], list[str], list[str]]:
-        """(libellés, bus, couleurs) des routages rapides, d'après la config."""
+    def _routing(self) -> list[str]:
+        """Libellés des routages rapides (A1, A2, B1…), d'après la config."""
         routing = self._cfg.get("voicemeeter", {}).get("routing", DEFAULT_ROUTING)
-        labels = [route.get("label", route.get("bus", "?")) for route in routing]
-        buses = [route.get("bus", "?") for route in routing]
-        return labels, buses, [styles.bus_color(bus) for bus in buses]
+        return [route.get("label", route.get("bus", "?")) for route in routing]
 
     def _build_rack(self) -> None:
-        """(Re)crée les tranches et la matrice d'après la console : au démarrage, et en mode autonome
-        quand le profil change (autres canaux). La disposition les range ensuite (`_apply_plan`)."""
+        """(Re)crée les tranches d'après la console : au démarrage, et en mode autonome quand le profil
+        change (autres canaux). L'arrangement les range ensuite (`_apply_plan`)."""
         vm = self._vm
         ui_cfg = self._cfg.setdefault("ui", {})
         for strip in self.strips:
+            self.body.removeWidget(strip)
             strip.hide()
             strip.setParent(self.background)
             strip.deleteLater()
         self.strips = []
-        if self.matrix is not None:
-            self._matrix_box.removeWidget(self.matrix)
-            self.matrix.hide()
-            self.matrix.deleteLater()
-            self.matrix = None
 
-        labels, buses, colors = self._routing()
+        labels = self._routing()
         engine_names = [info.name for info in vm.strip_infos()]
         saved_names = list(ui_cfg.get("strip_names", []))
         sends = bool(getattr(vm, "supports_sends", True))
         pad_modes = list(ui_cfg.get("pad_modes", []))
-        strip_names: list[str] = []
         for index in range(vm.strip_count):
             if self._standalone:                       # les noms viennent du profil
                 name = engine_names[index] if index < len(engine_names) and engine_names[index] \
@@ -466,87 +435,48 @@ class MainWindow(QMainWindow):
                                 pad_modes=vm.pad_modes(index), physical=vm.is_physical(index),
                                 pad_mode=pad_modes[index] if index < len(pad_modes) else None,
                                 apps_button=(not self._standalone) and self._apps.available
-                                and virtual is not None,
-                                route_colors=colors)
+                                and virtual is not None)
             self._wire_strip(strip)
             strip.configure_effects(self._reaper.add_label, self._reaper.strip_hint(index),
                                     self._reaper.manages_fx, *self._chain_tooltips())
             strip.setParent(self.background)
             strip.hide()
             self.strips.append(strip)
-            strip_names.append(name)
-
-        self.matrix = LedMatrix(strip_names, buses, labels)
-        self.matrix.routeToggled.connect(vm.set_route)
-        self._matrix_box.insertWidget(1, self.matrix, 0, Qt.AlignmentFlag.AlignHCenter)
-        self._restore_hardware_settings()
+        self._restore_dynamics()
         if self._standalone:
             self._refresh_assignable()
             self._on_presence(self._presence)
 
-    # ------------------------------------------------- disposition (plan)
+    # ------------------------------------------------- arrangement (plan)
     def _relayout(self, resize: bool = True) -> None:
-        """Demande la disposition au coordinateur et réarrange la console d'après elle."""
+        """Demande l'arrangement au coordinateur et range la console d'après lui."""
         names = [strip.strip_name() for strip in self.strips]
         plan = self._session.plan(self._vm, names)
         self._apply_plan(plan, resize)
         self._apply_release(plan)
-        precision = any(planned.style.vu == VU_PRECISION for planned in plan.strips)
-        self.master.set_precision(precision)
-        self.outputs.set_precision(precision)
+        self.master.set_precision(any(planned.style.vu == VU_PRECISION for planned in plan.strips))
         self._update_fl_sync()
         self._refresh_bar()
 
     def _apply_plan(self, plan: LayoutPlan, resize: bool = True) -> None:
-        """Range les tranches déjà construites dans les groupes du plan (aucune n'est recréée), montre
-        ou cache la matrice et les sorties, et met le Master du bon côté."""
+        """Range les tranches déjà construites dans la rangée, dans l'ordre du plan (aucune n'est
+        recréée) ; celles que le plan cache restent vivantes mais invisibles."""
         self._plan = plan
         for strip in self.strips:
+            self.body.removeWidget(strip)
             strip.hide()
-            strip.setParent(self.background)          # hors de son groupe, invisible, mais bien vivante
-            self._mark_last(strip, False)
-        for frame in self._groups:
-            self.body.removeWidget(frame)
-            frame.hide()
-            frame.deleteLater()
-        self._groups = []
-        for group in plan.groups:
-            frame, row = self._make_group(group.title)
-            members = [self.strips[i] for i in group.strips if i < len(self.strips)]
-            for strip in members:
-                row.addWidget(strip)
-                strip.show()
-            if members:
-                self._mark_last(members[-1], True)
-            self._groups.append(frame)
+        shown = [self.strips[i] for i in plan.order if i < len(self.strips)]
+        for position, strip in enumerate(shown):
+            self.body.insertWidget(position, strip)
+            strip.show()
         for planned in plan.strips:
             if planned.index < len(self.strips):
                 self.strips[planned.index].apply_style(planned.style, planned.label)
-        self._arrange_body(plan)
         self._fit_to_layout(resize)
 
-    def _arrange_body(self, plan: LayoutPlan) -> None:
-        """Ordre des panneaux : [Master] groupes de tranches, matrice, sorties [Master]."""
-        for widget in (self._matrix_panel, self.outputs, self.master):
-            self.body.removeWidget(widget)
-        order: list[QWidget] = list(self._groups)
-        if plan.show_matrix:
-            order.append(self._matrix_panel)
-        if plan.show_outputs:
-            order.append(self.outputs)
-        if plan.master_side == "left":
-            order.insert(0, self.master)
-        else:
-            order.append(self.master)
-        for widget in order:
-            self.body.addWidget(widget)
-            widget.show()
-        self._matrix_panel.setVisible(plan.show_matrix)
-        self.outputs.setVisible(plan.show_outputs)
-
     def _fit_to_layout(self, resize: bool) -> None:
-        """La fenêtre suit la largeur de la disposition : jamais plus étroite que ses tranches,
-        et recalée dessus quand on change de disposition en cours de route."""
+        """La fenêtre suit la largeur de la rangée : jamais plus étroite que ses tranches,
+        et recalée dessus quand le nombre de tranches change en cours de route."""
         layout = self.background.layout()
         layout.activate()
         width = layout.sizeHint().width()
@@ -554,21 +484,12 @@ class MainWindow(QMainWindow):
         if resize and not (self.isMaximized() or self.isFullScreen()) and self.width() != width:
             self.resize(width, self.height())
 
-    @staticmethod
-    def _mark_last(strip: QWidget, last: bool) -> None:
-        """Propriété « last » (pas de filet à droite de la dernière tranche d'un groupe)."""
-        if bool(strip.property("last")) != last:
-            strip.setProperty("last", last)
-            strip.style().unpolish(strip)
-            strip.style().polish(strip)
-
     # ------------------------------------------- session : événements et barre
     def _refresh_bar(self) -> None:
         bar, session = self.action_bar, self._session
         bar.set_mode(self._standalone)
         bar.set_active_app(session.active)
         bar.set_music_state(session.button())
-        bar.set_layout_choice(session.layouts.selector_value)
         bar.set_sync(session.sync_connected if self._fl_sync is not None else None)
 
     def _apply_change(self, change: SessionChange) -> None:
@@ -590,8 +511,8 @@ class MainWindow(QMainWindow):
     def _on_detected(self, detected: list) -> None:
         self._apply_change(self._session.on_detected(detected))
 
-    def _on_layout_chosen(self, choice: str) -> None:
-        self._apply_change(self._session.set_layout(choice))
+    def _open_mode_settings(self) -> None:
+        self.open_settings(SETTINGS_TAB_LAYOUT)
 
     def _on_music_toggled(self, on: bool) -> None:
         self._apply_change(self._session.toggle_music(on))
@@ -640,7 +561,7 @@ class MainWindow(QMainWindow):
         if not links:
             self._notify_fl("Aucune tranche de la disposition n'est liée à une piste de FL Studio.")
             return
-        core, reason = connect_fl(self._cfg, watch=links.values())
+        core, reason = connect_fl(self._cfg, watch=links.values(), hub=self._midi_hub())
         if core is None:
             self._notify_fl(f"Synchronisation du mixer de FL Studio indisponible : {reason}")
             return
@@ -713,7 +634,7 @@ class MainWindow(QMainWindow):
         self._relayout()
         self._on_tracks(self._tracks)
         self._refresh_status()
-        if self._plan is not None and self._plan.groups:
+        if self._plan is not None and self._plan.order:
             self.toast.show_message(f"Profil « {self._vm.profile.name} » : {len(self.strips)} canaux.")
 
     def _on_presence(self, presence) -> None:
@@ -838,10 +759,8 @@ class MainWindow(QMainWindow):
         strip.fxBypassRequested.connect(reaper.set_fx_enabled)
         strip.fxRemoveRequested.connect(self._remove_effect)
         strip.soloToggled.connect(self._on_solo)
-        strip.trimChanged.connect(self._on_trim)
         strip.compChanged.connect(self._on_comp)
         strip.gateChanged.connect(self._on_gate)
-        strip.eqChanged.connect(self._on_strip_eq)
         strip.assignRequested.connect(self._on_assign_requested)
         strip.unassignRequested.connect(self._on_unassign_requested)
 
@@ -850,15 +769,13 @@ class MainWindow(QMainWindow):
         self._params = params
         for strip, strip_params in zip(self.strips, params.strips):
             strip.set_params(strip_params)
-        self.matrix.set_params(params.strips)
         self.master.set_headphone(params.headphone_gain)
-        self.outputs.set_gain(0, params.headphone_gain)
+        self._refresh_mute_all()
 
     def _on_levels(self, levels: MixerLevels) -> None:
         for strip, strip_levels in zip(self.strips, levels.strips):
             strip.set_levels(strip_levels)
         self.master.set_levels(levels.master)
-        self.outputs.set_levels(levels.master, getattr(levels, "buses", None))
 
     def _chain_tooltips(self) -> tuple[str, str]:
         """Info-bulles du badge FX (chaîne active / en bypass) selon le moteur."""
@@ -953,45 +870,21 @@ class MainWindow(QMainWindow):
                 "Les effets REAPER ne s'appliquent pas encore : choisis « Voicemeeter Insert "
                 "Virtual ASIO » comme carte son de REAPER (⚙ Réglages → préférences audio).")
 
-    # ------------------------------------------------ rack : groupes et réglages
-    @staticmethod
-    def _make_group(title: str) -> tuple[QFrame, QHBoxLayout]:
-        """Groupe crème (titre + rangée de tranches) ; renvoie (cadre, rangée)."""
-        group = QFrame()
-        group.setObjectName("creamGroup")
-        box = QVBoxLayout(group)
-        box.setContentsMargins(4, 6, 4, 4)
-        box.setSpacing(2)
-        label = QLabel(title)
-        label.setObjectName("creamTitle")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        box.addWidget(label)
-        row = QHBoxLayout()
-        row.setSpacing(STRIP_GAP)
-        box.addLayout(row, 1)
-        return group, row
-
+    # ------------------------------------------------ réglages, master, solo
     def _hardware_cfg(self) -> dict:
         return self._cfg.setdefault("ui", {}).setdefault("hardware", {})
 
-    def _remember(self, key: str, value, index: int | None = None) -> None:
-        """Retient un réglage que le moteur ne porte pas (trim, compr., EQ…)."""
-        store = self._hardware_cfg()
-        if index is None:
-            store[key] = round(float(value), 2)
-            return
-        values = store.setdefault(key, {})
+    def _remember(self, key: str, value, index: int) -> None:
+        """Retient un réglage que le moteur ne porte pas toujours (compresseur, gate)."""
+        values = self._hardware_cfg().setdefault(key, {})
         values[str(index)] = round(float(value), 2)
 
-    def _restore_hardware_settings(self) -> None:
+    def _restore_dynamics(self) -> None:
         store = self._hardware_cfg()
         for strip in self.strips:
             key = str(strip.index)
-            strip.set_trim(float(store.get("trim", {}).get(key, 0.0)))
             strip.set_comp_gate(float(store.get("comp", {}).get(key, 0.0)),
                                 float(store.get("gate", {}).get(key, 0.0)))
-        for band in ("bass", "mid", "treble"):
-            self.master.set_eq(band, float(store.get("eq", {}).get(band, 0.0)))
 
     def _engine_call(self, method: str, *args, feature: str) -> bool:
         """Appelle `method` sur le moteur Voicemeeter s'il la propose. Sinon le
@@ -1005,10 +898,6 @@ class MainWindow(QMainWindow):
             self.toast.show_message(f"{feature} : pas encore relié au moteur audio — "
                                     "le réglage est mémorisé dans l'interface.")
         return False
-
-    def _on_trim(self, index: int, db: float) -> None:
-        self._remember("trim", db, index)
-        self._engine_call("set_trim", index, db, feature="Trim")
 
     def _on_comp(self, index: int, value: float) -> None:
         self._remember("comp", value, index)
@@ -1037,27 +926,6 @@ class MainWindow(QMainWindow):
             self.toast.show_message(f"{feature} : le moteur audio n'en a pas pour cette entrée — "
                                     "le réglage est mémorisé dans l'interface.")
 
-    def _on_strip_eq(self, index: int, band: int, db: float) -> None:
-        """Égaliseur rapide d'une tranche (disposition Podcasting)."""
-        self._engine_call("set_strip_eq", index, band, db, feature="Égaliseur rapide")
-
-    def _on_eq(self, band: str, db: float) -> None:
-        store = self._hardware_cfg().setdefault("eq", {})
-        store[band] = round(float(db), 2)
-        self._engine_call("set_eq", band, db, feature="Égaliseur Intellipan")
-
-    # ---- master et sorties : A1 = bus du casque, MASTER = le même volume
-    def _on_master_gain(self, db: float) -> None:
-        self._vm.set_headphone_gain(db)
-        self.outputs.set_gain(0, db)
-
-    def _on_output_gain(self, output: int, db: float) -> None:
-        if output == 0:
-            self._vm.set_headphone_gain(db)
-            self.master.set_headphone(db)
-        else:
-            self._engine_call("set_bus_gain", output, db, feature=f"Sortie A{output + 1}")
-
     # ---- solo / mute all / eject all
     def _on_solo(self, index: int, on: bool) -> None:
         """Solo = toutes les entrées non solo sont coupées ; à la fin du solo,
@@ -1083,6 +951,10 @@ class MainWindow(QMainWindow):
         if not self._solo:
             self._pre_solo = {}
 
+    def _refresh_mute_all(self) -> None:
+        """« MUTE ALL » reste allumé tant que toutes les entrées sont coupées."""
+        self.master.set_all_muted(bool(self.strips) and all(strip.mute.isChecked() for strip in self.strips))
+
     def _mute_all(self) -> None:
         """Coupe toutes les entrées ; si tout est déjà coupé, les rétablit."""
         mute = not all(strip.mute.isChecked() for strip in self.strips)
@@ -1093,31 +965,17 @@ class MainWindow(QMainWindow):
         self._pre_solo = {}
         for strip in self.strips:
             self._vm.set_mute(strip.index, mute)
+        self.master.set_all_muted(mute and bool(self.strips))
 
     def _eject_all(self) -> None:
         answer = QMessageBox.question(
             self, "Eject all", "Déconnecter toutes les entrées de tous les bus ?\n"
-            "(Les niveaux d'envoi sont conservés ; tu peux tout rebrancher dans la matrice.)")
+            "(Les niveaux d'envoi sont conservés ; tu peux tout rebrancher strip par strip.)")
         if answer != QMessageBox.StandardButton.Yes:
             return
         for strip in self.strips:
             for route in range(len(strip.knobs)):
                 self._vm.set_route(strip.index, route, False)
-
-    # ---- magnéto (nécessite un enregistreur côté moteur)
-    def _on_record(self, on: bool) -> None:
-        if not self._engine_call("set_recording", on, feature="Enregistreur"):
-            self.master.tape.reset()
-
-    def _on_play(self) -> None:
-        if not self._engine_call("play_recording", feature="Enregistreur"):
-            self.master.tape.reset()
-
-    def _on_stop_tape(self) -> None:
-        self._engine_call("stop_recording", feature="Enregistreur")
-
-    def _on_ab(self, on: bool) -> None:
-        self._engine_call("set_ab_loop", on, feature="Boucle A-B")
 
     # ------------------------------------------------------- actions UI
     def _on_pad_mode(self, index: int, mode: str) -> None:
@@ -1149,6 +1007,55 @@ class MainWindow(QMainWindow):
     def _on_app_mixer_closed(self) -> None:
         self._app_mixer = None
         QTimer.singleShot(0, self.refresh_app_counts)
+
+    # ------------------------------------------------------- musique en cours
+    def _on_media_play(self) -> None:
+        self._media.play_pause()
+        # Le bouton a basculé tout de suite ; si l'application n'a pas suivi, on le remet
+        QTimer.singleShot(MEDIA_RESYNC_MS, self, self._resync_media)
+
+    def _resync_media(self) -> None:
+        self.master.media.set_info(self._media.current)
+
+    def _update_media(self) -> None:
+        """Lecteur du Master : affiché si les contrôles média répondent et si l'option est active
+        (réglages → Apparence)."""
+        show = self._media.available and bool(self._cfg.get("ui", {}).get("show_media", True))
+        if show:
+            self._media.start()
+            self.master.media.set_info(self._media.current)
+        else:
+            self._media.stop()
+        self.master.media.setVisible(show)
+
+    # ------------------------------------------------------------ Studio
+    def _midi_hub(self) -> TransportHub:
+        """Les ports MIDI virtuels de FL Studio ne s'ouvrent qu'une fois : la synchro du mixer et le
+        Studio les partagent."""
+        if self._hub is None:
+            self._hub = TransportHub(lambda: open_transport(self._cfg))
+        return self._hub
+
+    def open_studio(self) -> None:
+        """Ouvre (ou ramène devant) la fenêtre Studio : la télécommande du vrai logiciel de musique,
+        FL Studio, Cubase… Elle est visible même sans logiciel lancé (démonstration)."""
+        if self._studio is not None:
+            self._studio.show()
+            self._studio.raise_()
+            self._studio.activateWindow()
+            return
+        scan = self._detector.scan_now if self._detector is not None else None
+        session = StudioSession(self._cfg, scan=scan, hub=self._midi_hub())
+        studio = StudioWindow(session, cfg=self._cfg, persist=self._save_config, parent=self)
+        studio.closed.connect(self._on_studio_closed)
+        self._studio = studio
+        studio.show()
+
+    def _on_studio_closed(self) -> None:
+        studio, self._studio = self._studio, None
+        if studio is not None:
+            studio.session.close()
+            studio.deleteLater()
 
     # ------------------------------------------------------- mises à jour
     def _on_update_available(self, update: UpdateInfo) -> None:
@@ -1198,7 +1105,6 @@ class MainWindow(QMainWindow):
             while len(names) <= index:
                 names.append(f"Strip {len(names) + 1}")
             names[index] = name
-        self.matrix.set_strip_name(index, name)
         self._reaper.rename_track(index, name)
         self._vm.set_label(index, name)
         self._save_config()
@@ -1319,6 +1225,7 @@ class MainWindow(QMainWindow):
             for widget in self.findChildren(QWidget):
                 widget.update()
             self.update()
+        self._update_media()
 
     # -------------------------------------------------------------- fenêtre
     def compact_size(self) -> tuple[int, int]:
@@ -1470,6 +1377,9 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ fermeture
     def closeEvent(self, event) -> None:  # noqa: N802
+        if self._studio is not None:
+            self._studio.close()
+        self._media.stop()
         if self._detector is not None:
             self._detector.stop()
         self._stop_fl_sync()

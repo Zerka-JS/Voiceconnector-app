@@ -9,8 +9,6 @@ from core.app_detector import (APPS_BY_KEY, AUTO, KNOWN_APPS, NO_APP, SOURCE_DET
                                music_apps, music_button_state, music_mode_available,
                                process_stem, psutil_processes, resolve_active_app, voice_apps)
 
-VALID_LAYOUTS = {"standard", "fl_studio", "streaming", "podcast"}
-
 
 def procs(*names, exe=""):
     return lambda: [ProcessInfo(name, exe, pid) for pid, name in enumerate(names, start=100)]
@@ -22,7 +20,7 @@ def test_catalog_is_consistent():
     assert len(keys) == len(set(keys)), "clés en double"
     for app in KNOWN_APPS:
         assert app.exe_names or app.exe_patterns, f"{app.key} : aucun nom de processus"
-        assert app.layout in VALID_LAYOUTS, f"{app.key} : disposition inconnue {app.layout}"
+        assert not hasattr(app, "layout"), "plus de choix de layout par logiciel"
         assert app.name and app.kind_label
         # Une application vocale, de diffusion ou un simple lecteur n'a jamais de partie musicale
         if not app.is_daw:
@@ -206,7 +204,7 @@ def test_auto_prefers_the_music_application():
 def test_auto_without_known_application():
     assert resolve_active_app(detected("explorer.exe"), AUTO) == NO_APP
     assert NO_APP.source == SOURCE_NONE and not NO_APP.has_music_production
-    assert NO_APP.name == "Aucun logiciel reconnu" and NO_APP.suggested_layout is None
+    assert NO_APP.name == "Aucun logiciel reconnu" and not hasattr(NO_APP, "suggested_layout")
 
 
 def test_auto_with_only_a_voice_application_hides_the_music_button():
@@ -231,10 +229,11 @@ def test_invalid_or_auto_selection_falls_back_to_detection(selected):
     assert active.key == "reaper" and active.source == SOURCE_DETECTED
 
 
-def test_suggested_layout_follows_the_application():
-    assert resolve_active_app(detected("FL64.exe")).suggested_layout == "fl_studio"
-    assert resolve_active_app(detected("obs64.exe")).suggested_layout == "streaming"
-    assert resolve_active_app(detected("audacity.exe")).suggested_layout == "podcast"
+def test_the_music_button_follows_the_application_not_a_layout():
+    """Seuls les logiciels avec une partie production musicale proposent le mode musical."""
+    assert resolve_active_app(detected("FL64.exe")).has_music_production
+    assert not resolve_active_app(detected("obs64.exe")).has_music_production
+    assert not resolve_active_app(detected("audacity.exe")).has_music_production
 
 
 def test_tracker_reports_changes_only():

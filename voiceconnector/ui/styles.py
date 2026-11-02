@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication
 from core import color_scheme, config
 from core.color_scheme import (  # noqa: F401 - ré-exportés : les widgets lisent styles.MASTER_SCOPE…
     ELEMENT_LABELS, MASTER_ELEMENTS, MASTER_SCOPE, STRIP_ELEMENTS)
-from core.themes import DEFAULT_SHAPE, EXTRA_KEYS, SKIN_KEYS, ThemeSpec, global_theme
+from core.themes import DEFAULT_SHAPE, EXTRA_KEYS, ThemeSpec, global_theme
 
 log = logging.getLogger(__name__)
 
@@ -76,50 +76,6 @@ STUDIO_PALETTE = {
     "ON_ACCENT": "#0b1220", "ON_ACCENT_DARK": "#0b1220", "BADGE_OFF": "#1a1e27",
 }
 
-# --- Palette « VoiceConnector » (matériel rétro / rack) -----------------------
-# Parties sombres (châssis, matrice, master) : appliquées comme la palette Studio.
-VINTAGE_PALETTE = {
-    "BG_WINDOW": "#17181a", "BG_GLOW": "#1c1d20", "BG_COLUMN": "#1d1e21",
-    "BG_SECTION": "#121315", "BORDER_COLUMN": "#303236", "BORDER_SECTION": "#26282b",
-    "BG_PANEL": "#1d1e21", "BG_PILL": "#232528", "BG_DEEP": "#0c0d0e",
-    "GREEN_NEON": "#3fcf5a", "GREEN_TEXT": "#3fcf5a", "GREEN_BRIGHT": "#6ee787",
-    "GREEN_DIM": "#1e5a2c", "GREEN_LABEL": "#9aa39c", "GREEN_SCALE": "#3d4a40",
-    "TEXT_PRIMARY": "#ece7d8", "TEXT_SECONDARY": "#a8a493", "TEXT_MUTED": "#6b6858",
-    "BUTTON_BG": "#26282b", "BUTTON_HOVER": "#303338", "PILL_BG": "#232528",
-    "PILL_BORDER": "#303236", "KNOB_CAP_TOP": "#4a4c50", "KNOB_CAP_BOTTOM": "#1e1f21",
-    "ON_ACCENT": "#06210e", "ON_ACCENT_DARK": "#06210e", "BADGE_OFF": "#18191b",
-}
-
-# Couleurs fixes du matériel (indépendantes du thème) : tranches crème, bois, châssis
-CREAM = "#e9e0c6"             # fond des tranches
-CREAM_DARK = "#d2c7a4"        # bas du dégradé des tranches
-CREAM_EDGE = "#a99d7c"        # filets, séparations
-CREAM_KEY = "#f4ecd4"         # touches (Solo / Mute) au repos
-INK = "#2a2923"               # encre sur crème (titres, graduations principales)
-INK_SOFT = "#6a6350"          # encre secondaire sur crème
-WOOD_LIGHT = "#dcc9a0"        # joues latérales
-WOOD_DARK = "#b89f6e"
-CHASSIS_TOP = "#2b2c2f"       # châssis métallique noir mat
-CHASSIS_BOTTOM = "#161719"
-HW_ORANGE = "#f08a24"
-HW_GREEN = "#3fcf5a"
-HW_BLUE = "#3b82f6"
-HW_YELLOW = "#e8c32a"
-HW_RED = "#e5483a"
-CAP_COLORS = (HW_ORANGE, HW_BLUE, HW_GREEN, HW_YELLOW, "#d4572b", "#8b5cf6")
-_BUS_COLORS = {"B1": HW_GREEN, "B2": HW_BLUE, "B3": HW_YELLOW}
-
-
-def bus_color(bus: str) -> str:
-    """Couleur d'un bus dans la matrice : A* orange, B1 vert, B2 bleu, B3 jaune."""
-    bus = str(bus or "").upper()
-    if bus in _BUS_COLORS:
-        return _BUS_COLORS[bus]
-    if bus.startswith("A"):
-        return HW_ORANGE
-    return CAP_COLORS[sum(map(ord, bus)) % len(CAP_COLORS)]
-
-
 # Couleurs fixes des VU-mètres et des boutons d'état (indépendantes du thème)
 VU_GREEN = "#22c55e"
 VU_YELLOW = "#facc15"
@@ -130,26 +86,19 @@ SOLO_ON = "#f59e0b"          # ambre
 SOLO_ON_HOVER = "#fbbf24"
 TEXT_ON_SOLO = "#1c1203"
 
-# --- Peau et formes que les thèmes globaux (core/themes.py) peuvent remplacer ----
-# Les valeurs ci-dessous sont celles du matériel d'origine (tranches crème) : les
-# thèmes d'accent historiques les gardent ; set_theme() les remet à chaque changement.
+# --- Couleurs d'état et formes que les thèmes globaux (core/themes.py) peuvent remplacer ----
+# Les valeurs ci-dessous sont celles du thème par défaut : les thèmes d'accent les gardent ; set_theme() les
+# remet à chaque changement.
 SELECTION_TEXT = WHITE        # texte d'une ligne sélectionnée (listes, menus)
-GROUP_BORDER = BG_DEEP        # bordure des groupes de tranches (suit BG_DEEP hors thèmes globaux)
-BAY_BG = "rgba(60, 50, 20, 0.08)"     # alvéole des boutons de routage
-TRANSPORT_TOP = "#4a4c50"     # touches de transport (dégradé)
-TRANSPORT_BOTTOM = "#26282b"
 R_COLUMN = DEFAULT_SHAPE["R_COLUMN"]      # rayons des coins (px) : colonnes, blocs, boutons, champs
 R_SECTION = DEFAULT_SHAPE["R_SECTION"]
 R_BUTTON = DEFAULT_SHAPE["R_BUTTON"]
 R_INPUT = DEFAULT_SHAPE["R_INPUT"]
-R_GROUP = 6                   # groupes de tranches : dérivé de R_SECTION (voir _derive_shape)
-_SKIN_BASE = {name: globals()[name] for name in SKIN_KEYS}
 _EXTRA_BASE = {name: globals()[name] for name in EXTRA_KEYS}
 
 # --- Thèmes ----------------------------------------------------------------
-DEFAULT_THEME = "vintage"
+DEFAULT_THEME = "studio"      # « Dark Studio Pro » : le thème par défaut
 THEMES = {                    # clé (config ui.theme) → (nom affiché, accent)
-    "vintage": ("VoiceConnector (rétro)", "#3fcf5a"),
     "studio": ("Dark Studio Pro", "#3b82f6"),
     "neon": ("Vert néon", "#00ff88"),
     "cyan": ("Cyan", "#00e5ff"),
@@ -357,23 +306,17 @@ def _rotate(value: str, hue_shift: float, saturation: float) -> str:
     return QColor.fromHslF((h + hue_shift) % 1.0, max(0.0, min(1.0, s * saturation)), l).name()
 
 
-def _derive_shape() -> None:
-    """Rayon des groupes de tranches : 6 px pour des blocs de 10 px, plus serré si le thème l'est."""
-    globals()["R_GROUP"] = max(2, round(R_SECTION * 0.6))
-
-
 def set_theme(theme: str | None) -> str:
     """Recolore la palette d'après le thème ; renvoie le thème appliqué (le
     thème par défaut si `theme` est inconnu). Appeler ensuite refresh().
 
-    Un thème global (Rétro, Futuriste, Épuré, Studio Pro) impose aussi la peau des
-    tranches, les couleurs d'état et la forme des coins ; un thème d'accent
-    (historique, ou « #rrggbb ») rétablit celles d'origine."""
+    Un thème global (Rétro, Futuriste, Épuré, Studio Pro) impose aussi les couleurs
+    d'état et la forme des coins ; un thème d'accent (« Dark Studio Pro »… ou
+    « #rrggbb ») rétablit ceux d'origine."""
     global _current_theme
     spec = global_theme(theme)
     if spec is not None:
         globals().update(spec.values())
-        _derive_shape()
         _current_theme = spec.key
         return spec.key
     accent = theme_accent(theme)
@@ -382,8 +325,6 @@ def set_theme(theme: str | None) -> str:
     values = dict(_BASE)
     if theme == "studio":
         values.update(STUDIO_PALETTE)
-    elif theme == "vintage":
-        values.update(VINTAGE_PALETTE)
     elif theme != "neon":
         ah, as_, al, _ = accent.getHslF()
         bh, bs, _bl, _ = QColor(_BASE["GREEN_NEON"]).getHslF()
@@ -402,13 +343,10 @@ def set_theme(theme: str | None) -> str:
         values["GREEN_BRIGHT"] = _mix(accent, QColor("#ffffff"), HOVER_TOWARD_WHITE).name()
         if contrast(accent, QColor(values["ON_ACCENT"])) < 4.5:   # « FX » du badge allumé
             values["ON_ACCENT"] = values["ON_ACCENT_DARK"]
-    # Peau crème, couleurs d'état et coins d'origine (un thème global précédent les avait changés)
-    values.update(_SKIN_BASE)
+    # Couleurs d'état et coins d'origine (un thème global précédent les avait changés)
     values.update(_EXTRA_BASE)
     values.update(DEFAULT_SHAPE)
-    values["GROUP_BORDER"] = values["BG_DEEP"]
     globals().update(values)
-    _derive_shape()
     _current_theme = theme
     return theme
 
@@ -442,8 +380,7 @@ def build_stylesheet(panel_opacity: float = 1.0) -> str:
     """QSS de l'application, aux couleurs du thème en cours. `panel_opacity`
     < 1 laisse voir l'arrière-plan (image personnalisée) à travers les
     colonnes et leurs blocs."""
-    return ((_stylesheet() + _hardware_stylesheet() + _action_bar_stylesheet() + _strip_extras_stylesheet()
-             + _theme_stylesheet())
+    return ((_stylesheet() + _action_bar_stylesheet() + _strip_extras_stylesheet() + _theme_stylesheet())
             .replace("@COLUMN_BG@", _rgba(BG_COLUMN, panel_opacity))
             .replace("@SECTION_BG@", _rgba(BG_SECTION, panel_opacity)))
 
@@ -496,7 +433,7 @@ def _apply_palette(app: QApplication) -> None:
 
 
 def _action_bar_stylesheet() -> str:
-    """Barre d'actions : mode, logiciel suivi, disposition et bouton « Mode musical »."""
+    """Barre d'actions : mode, logiciel suivi, boutons « Studio » et « Mode musical »."""
     return f"""
 /* ---- barre d'actions ---- */
 QFrame#actionBar {{
@@ -531,16 +468,24 @@ QPushButton#appChip:hover {{
     background: {BUTTON_BG};
     border-color: {GREEN_DIM};
 }}
-QComboBox#layoutChoice {{
-    min-width: 150px;
-    padding: 3px 8px;
-}}
 QLabel#syncLed {{
     color: {TEXT_MUTED};
     font-size: 12px;
 }}
 QLabel#syncLed[on="true"] {{
     color: {VU_GREEN};
+}}
+QPushButton#studioButton {{
+    background: {GREEN_NEON};
+    border: 1px solid {GREEN_NEON};
+    border-radius: {R_BUTTON}px;
+    color: {ON_ACCENT_DARK};
+    font-weight: 700;
+    padding: 5px 16px;
+}}
+QPushButton#studioButton:hover {{
+    background: {GREEN_BRIGHT};
+    border-color: {GREEN_BRIGHT};
 }}
 QPushButton#musicButton {{
     background: {BUTTON_BG};
@@ -566,39 +511,20 @@ QPushButton#musicButton:disabled {{
 
 
 def _strip_extras_stylesheet() -> str:
-    """Compléments des tranches : libellé de l'emplacement, touche « Clarté », tranche absente."""
+    """Compléments des tranches : libellé d'emplacement (arrangement studio), tranche absente (mode B)."""
     return f"""
-/* ---- tranches : dispositions et mode autonome ---- */
-QFrame#stripPanel QLabel#roleLabel {{
-    color: {INK_SOFT};
-    font-size: 8px;
+/* ---- tranches : arrangement studio et mode autonome ---- */
+QLabel#roleLabel {{
+    color: {TEXT_SECONDARY};
+    font-size: 9px;
     font-weight: 700;
 }}
-QFrame#stripPanel[absent="true"] {{
-    background: rgba(0, 0, 0, 0.10);
+QFrame#column[absent="true"] {{
+    background: rgba(0, 0, 0, 0.18);
 }}
-QFrame#stripPanel QLabel#stripName[absent="true"], QFrame#stripPanel QLabel#roleLabel[absent="true"] {{
-    color: {INK_SOFT};
+QLabel#stripName[absent="true"], QLabel#roleLabel[absent="true"] {{
+    color: {TEXT_MUTED};
     font-weight: 500;
-}}
-QFrame#stripPanel QPushButton#clarityButton {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {CREAM_KEY}, stop:1 {CREAM_DARK});
-    border: 1px solid {INK_SOFT};
-    border-bottom: 2px solid {INK_SOFT};
-    border-radius: 4px;
-    color: {INK};
-    font-size: 9px;
-    font-weight: 600;
-    padding: 0;
-}}
-QFrame#stripPanel QPushButton#clarityButton:hover {{
-    background: {CREAM_KEY};
-    border-color: {INK};
-}}
-QFrame#stripPanel QPushButton#clarityButton:checked {{
-    background: {GREEN_NEON};
-    border: 1px solid {INK};
-    color: {ON_ACCENT_DARK};
 }}
 """
 
@@ -1041,143 +967,5 @@ QProgressBar {{
 QProgressBar::chunk {{
     background: {GREEN_NEON};
     border-radius: {min(4, R_INPUT)}px;
-}}
-"""
-
-
-def _hardware_stylesheet() -> str:
-    """Habillage « rack vintage » : groupes crème, touches, clés de transport.
-    Ajouté APRÈS la QSS de base : à sélecteur égal, ces règles l'emportent."""
-    return f"""
-/* ---- groupes et tranches crème ---- */
-QFrame#creamGroup {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {CREAM}, stop:1 {CREAM_DARK});
-    border: 2px solid {GROUP_BORDER};
-    border-radius: {R_GROUP}px;
-}}
-QFrame#darkGroup {{
-    background: {BG_DEEP};
-    border: 2px solid {BORDER_COLUMN};
-    border-radius: {R_GROUP}px;
-}}
-QFrame#stripPanel {{
-    background: transparent;
-    border: none;
-    border-right: 1px solid {CREAM_EDGE};
-    border-radius: 0;
-}}
-QFrame#stripPanel[last="true"] {{
-    border-right: none;
-}}
-QFrame#bay {{
-    background: {BAY_BG};
-    border: 1px solid {CREAM_EDGE};
-    border-radius: {R_GROUP}px;
-}}
-QFrame#outputStrip {{
-    background: transparent;
-    border: none;
-    border-right: 1px solid {CREAM_EDGE};
-}}
-QFrame#outputStrip[last="true"] {{
-    border-right: none;
-}}
-QFrame#stripPanel QLabel#stripName, QFrame#outputStrip QLabel#stripName {{
-    color: {INK};
-    font-size: 10px;
-    font-weight: 700;
-}}
-QFrame#stripPanel QLabel#knobLabel, QFrame#outputStrip QLabel#knobLabel {{
-    color: {INK_SOFT};
-    font-size: 9px;
-    font-weight: 600;
-}}
-QFrame#stripPanel QLabel#faderValue, QFrame#outputStrip QLabel#faderValue {{
-    color: {INK};
-}}
-QFrame#stripPanel QLabel#faderValue[muted="true"], QFrame#outputStrip QLabel#faderValue[muted="true"] {{
-    color: {INK_SOFT};
-}}
-QLabel#creamTitle {{
-    color: {INK};
-    font-size: 10px;
-    font-weight: 700;
-}}
-QLabel#groupTitle {{
-    color: {TEXT_SECONDARY};
-    font-size: 9px;
-    font-weight: 700;
-}}
-QLabel#matrixTitle {{
-    color: {TEXT_PRIMARY};
-    font-size: 9px;
-    font-weight: 700;
-}}
-
-/* ---- touches Solo / Mute sur crème ---- */
-QFrame#stripPanel QPushButton#muteButton, QFrame#stripPanel QPushButton#soloButton {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {CREAM_KEY}, stop:1 {CREAM_DARK});
-    border: 1px solid {INK_SOFT};
-    border-bottom: 2px solid {INK_SOFT};
-    border-radius: 4px;
-    color: {INK};
-    font-size: 10px;
-    padding: 0;
-}}
-QFrame#stripPanel QPushButton#muteButton:hover, QFrame#stripPanel QPushButton#soloButton:hover {{
-    background: {CREAM_KEY};
-    border-color: {INK};
-}}
-QFrame#stripPanel QPushButton#muteButton:checked {{
-    background: {MUTE_ON};
-    border: 1px solid {INK};
-    color: {WHITE};
-}}
-QFrame#stripPanel QPushButton#soloButton:checked {{
-    background: {SOLO_ON};
-    border: 1px solid {INK};
-    color: {TEXT_ON_SOLO};
-}}
-
-/* ---- section Master : touches générales et transport ---- */
-QPushButton#toolMute, QPushButton#toolEject {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e0795a, stop:1 #a8432b);
-    border: 1px solid #4a170c;
-    border-radius: 4px;
-    color: {WHITE};
-    font-size: 10px;
-    font-weight: 700;
-    padding: 5px 4px;
-}}
-QPushButton#toolMute:hover, QPushButton#toolEject:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ee8d70, stop:1 #bb5236);
-}}
-QPushButton#toolMute:checked {{
-    background: {MUTE_ON};
-    border-color: {WHITE};
-}}
-QPushButton#transport {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {TRANSPORT_TOP}, stop:1 {TRANSPORT_BOTTOM});
-    border: 1px solid {BG_DEEP};
-    border-radius: 3px;
-    color: {TEXT_PRIMARY};
-    font-size: 9px;
-    font-weight: 700;
-    padding: 4px 0;
-}}
-QPushButton#transport:hover {{
-    border-color: {TEXT_SECONDARY};
-}}
-QPushButton#transport:checked {{
-    background: {GREEN_DIM};
-    border-color: {GREEN_NEON};
-}}
-QPushButton#transportRec:checked {{
-    background: {MUTE_ON};
-    border-color: {RED_MUTE};
-}}
-QLabel#tapeFile {{
-    color: {TEXT_SECONDARY};
-    font-size: 8px;
 }}
 """

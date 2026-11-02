@@ -6,8 +6,8 @@ import pytest
 
 from core import themes
 from core.themes import (CONTRAST_RULES, EXTRA_KEYS, GLOBAL_THEME_ORDER, GLOBAL_THEMES,
-                         PALETTE_KEYS, SHAPE_KEYS, SKIN_KEYS, check_theme, contrast_ratio,
-                         global_theme, luminance)
+                         PALETTE_KEYS, SHAPE_KEYS, check_theme, contrast_ratio, global_theme,
+                         luminance)
 
 
 def test_the_four_requested_themes_exist():
@@ -27,12 +27,12 @@ def test_theme_is_complete_and_readable(key):
     spec = GLOBAL_THEMES[key]
     assert check_theme(spec) == []
     assert set(spec.palette) == set(PALETTE_KEYS)
-    assert set(spec.skin) == set(SKIN_KEYS)
     assert set(spec.extras) <= set(EXTRA_KEYS)
     assert set(spec.shape) <= set(SHAPE_KEYS)
     values = spec.values()
     assert all(name in values for name in SHAPE_KEYS)       # rayons par défaut complétés
-    assert spec.tagline and spec.suggested_layout in {"standard", "fl_studio", "streaming", "podcast"}
+    assert spec.tagline and spec.accent.startswith("#")
+    assert not hasattr(spec, "skin") and not hasattr(spec, "suggested_layout")   # plus de peau crème ni de layout
 
 
 def test_only_the_flat_theme_is_light():
@@ -42,10 +42,9 @@ def test_only_the_flat_theme_is_light():
         assert luminance(GLOBAL_THEMES[key].palette["BG_WINDOW"]) < 0.05
 
 
-def test_flat_skin_has_no_gradient():
-    skin = GLOBAL_THEMES["flat"].skin
-    assert skin["CREAM"] == skin["CREAM_DARK"]               # aplat, comme l'indique « Flat Modern »
+def test_flat_theme_has_softer_corners_than_the_hud_theme():
     assert GLOBAL_THEMES["flat"].shape["R_COLUMN"] > GLOBAL_THEMES["cyberpunk"].shape["R_COLUMN"]
+    assert GLOBAL_THEMES["slate"].backdrop == "slate" and GLOBAL_THEMES["flat"].backdrop == "flat"
 
 
 def test_contrast_helpers():
@@ -74,7 +73,7 @@ def test_check_theme_detects_problems():
 
 
 def test_every_contrast_rule_references_known_keys():
-    known = set(PALETTE_KEYS) | set(SKIN_KEYS) | set(EXTRA_KEYS)
+    known = set(PALETTE_KEYS) | set(EXTRA_KEYS)
     for foreground, background, minimum in CONTRAST_RULES:
         assert minimum >= 3.0
         for name in (foreground, background):

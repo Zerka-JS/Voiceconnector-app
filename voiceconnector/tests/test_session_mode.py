@@ -5,7 +5,7 @@ import pytest
 from core import app_detector as ad
 from core import layout_manager as lm
 from core import session_mode as sm
-from core.layout_manager import FL_STUDIO, STREAMING, LayoutManager, StripInfo
+from core.layout_manager import FL_STUDIO, STANDARD, LayoutManager, StripInfo
 from core.session_mode import (MusicModeController, SessionSettings, direct_return_help,
                                music_release)
 
@@ -105,14 +105,14 @@ def test_music_mode_turns_on_with_a_music_software():
 
 
 def test_music_mode_is_refused_without_a_music_software():
-    cfg, session, layouts, music = make({"layout": {"preset": STREAMING}})
+    cfg, session, layouts, music = make()
     for key in ("discord", "zoom", "spotify", "obs", "audacity", "teamspeak3"):
         transition = music.request(True, active(key))
         assert not transition.on and transition.reason == "unavailable", key
         assert "FL Studio" in transition.message or "production" in transition.message
         assert not music.on and not layouts.music_mode and not session.music_mode
     assert not music.request(True, ad.NO_APP).on
-    assert layouts.effective_preset() == STREAMING
+    assert layouts.effective_preset() == STANDARD
 
 
 @pytest.mark.parametrize("key", [app.key for app in ad.KNOWN_APPS])
@@ -123,12 +123,12 @@ def test_music_mode_rule_is_strict_for_every_known_application(key):
     assert music.available(active(key)) == app.has_music_production
 
 
-def test_turning_the_mode_off_restores_the_previous_layout():
-    cfg, session, layouts, music = make({"layout": {"preset": STREAMING}})
+def test_turning_the_mode_off_restores_the_console():
+    cfg, session, layouts, music = make()
     music.request(True, active("fl_studio"))
     transition = music.request(False, active("fl_studio"))
     assert not transition.on and transition.changed and "rétablis" in transition.message
-    assert layouts.effective_preset() == STREAMING and not session.music_mode
+    assert layouts.effective_preset() == STANDARD and not session.music_mode
     assert not music.request(False, active("fl_studio")).changed     # déjà éteint
 
 

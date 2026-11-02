@@ -697,14 +697,17 @@ class FlStripSync:
         return self.pull(every)
 
 
-def connect_fl(cfg: Mapping, watch: Iterable[int] = DEFAULT_ROLE_TRACKS.values()
-               ) -> tuple[FlSyncCore | None, str]:
+def connect_fl(cfg: Mapping, watch: Iterable[int] = DEFAULT_ROLE_TRACKS.values(),
+               hub=None) -> tuple[FlSyncCore | None, str]:
     """Ouvre les ports MIDI et lance la synchronisation : (cœur, « ») ou (None, raison).
+
+    `hub` (core/transport_hub.py) partage les ports avec le Studio : Windows ne laisse un port MIDI
+    d'entrée s'ouvrir qu'une fois.
 
     Ne lève jamais : sans mido, sans loopMIDI ou sans script dans FL Studio, la console
     marche comme avant, et la raison est affichée à l'utilisateur."""
     try:
-        transport = open_transport(cfg)
+        transport = hub.open() if hub is not None else open_transport(cfg)
     except TransportError as exc:
         log.info("Synchronisation FL Studio indisponible : %s", exc)
         return None, str(exc)

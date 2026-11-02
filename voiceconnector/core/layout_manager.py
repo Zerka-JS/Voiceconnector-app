@@ -1,8 +1,8 @@
 """
 Disposition de la console et apparence (thème).
 
-La console n'a plus de choix de « layout » : une seule interface, celle de Reka (tranches
-sombres arrondies sur une seule ligne, colonne Master à droite avec le lecteur de musique).
+La console n'a plus de choix de « layout » : une seule interface (tranches sombres arrondies
+sur une seule ligne, colonne Master à droite avec le lecteur de musique).
 Reste un seul changement de disposition, automatique : le MODE MUSICAL.
 
 Tout est ici de la logique pure (aucun Qt) : l'interface lit le résultat et l'applique.
@@ -252,7 +252,10 @@ def build_plan(preset: LayoutPreset, strips: Sequence[StripInfo], *,
 
     if not preset.slots:                                  # console : tout, matériel d'abord
         order = tuple(s.index for s in strips if s.physical) + tuple(s.index for s in strips if not s.physical)
-        planned = tuple(PlannedStrip(s.index, style=style(s)) for s in strips)
+        # Un rôle déclaré par un profil reste connu du plan (le routage sans écho s'en sert) ;
+        # il ne change rien à l'affichage : pas de libellé d'emplacement sur la console.
+        planned = tuple(PlannedStrip(s.index, s.role if s.role in ALL_ROLES else None, style=style(s))
+                        for s in strips)
         return LayoutPlan(preset.key, planned, order)
 
     roles = assign_roles(preset.slots, strips, explicit_roles)

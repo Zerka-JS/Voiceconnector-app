@@ -1,12 +1,8 @@
 """
-Panneau droit du rack VoiceConnector.
-
-- OutputsPanel : « HARDWARE OUTPUTS » (A1, A2, A3), tranches crème avec VU à
-  LED et fader d'atténuation.
-- MasterWidget : titre + engrenage (réglages), badge de connexion, projet,
-  MUTE ALL / EJECT ALL, bouton MASTER (volume du casque, bus A1) avec son
-  interpolation douce, VU à LED + spectre, deux VU à aiguille, magnéto
-  (REC / PLAY / STOP / A-B) et section INTELLIPAN (BASS / MID / TREBLE).
+Colonne Master du rack VoiceConnector : titre + réduire + engrenage (réglages),
+badge de connexion, projet, pill de mise à jour, MUTE ALL / EJECT ALL, bouton du casque
+(bus A1) avec son interpolation douce, musique en cours (pochette, précédent / pause / suivant)
+et VU-mètre master.
 """
 
 from __future__ import annotations
@@ -15,23 +11,17 @@ import math
 
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QLabel, QPushButton,
-                               QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QAbstractButton, QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui import styles
 from ui.fader import format_db
-from ui.fader import HardwareFader
-from ui.hardware_widgets import AnalogVu, SpectrumDisplay, TapeDeck
-from ui.knob import DialKnob, HardwareKnob
+from ui.knob import Knob
+from ui.media_widget import MediaWidget
 from ui.strip_widget import make_section
-from ui.vu_meter import LedVuMeter
+from ui.vu_meter import VuMeter
 
-MASTER_WIDTH = 300
-HEADPHONE_KNOB = 64
-EQ_KNOB = 56
-EQ_RANGE_DB = 12.0               # BASS / MID / TREBLE : -12 … +12 dB
-OUTPUT_LABELS = ("A1", "A2", "A3")
-OUTPUT_WIDTH = 74
+MASTER_WIDTH = 138
+HEADPHONE_KNOB = 72
 PULSE_MS = 1500
 
 
@@ -268,106 +258,58 @@ class UpdateButton(QAbstractButton):
         super().leaveEvent(event)
 
 
-class OutputStrip(QFrame):
-    """Une sortie matérielle (A1, A2, A3) : titre, VU à LED, fader d'atténuation."""
+class ToolPill(QAbstractButton):
+    """Pill d'action du Master (« MUTE ALL », « EJECT ALL »), dessinée comme les autres pills.
 
-    gainChanged = Signal(int, float)          # (numéro de sortie 0…2, dB)
+    `kind` : "mute" s'allume (accent rouge) tant que tout est coupé ; "eject" reste neutre."""
 
-    def __init__(self, index: int, label: str, parent: QWidget | None = None) -> None:
+    def __init__(self, text: str, kind: str, tooltip: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.index = index
-        self.setObjectName("outputStrip")
-        self.setFixedWidth(OUTPUT_WIDTH)
-        box = QVBoxLayout(self)
-        box.setContentsMargins(4, 6, 4, 4)
-        box.setSpacing(6)
-        self.title = QLabel(label)
-        self.title.setObjectName("stripName")
-        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        box.addWidget(self.title)
-        self.value_label = QLabel()
-        self.value_label.setObjectName("faderValue")
-        self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        box.addWidget(self.value_label)
-        body = QHBoxLayout()
-        body.setSpacing(3)
-        body.addStretch(1)
-        self.fader = HardwareFader("#3a3b3f")
-        self.fader.valueChanged.connect(self._on_fader)
-        body.addWidget(self.fader)
-        self.vu = LedVuMeter(channels=2, bar_width=5, gap=2)
-        body.addWidget(self.vu)
-        body.addStretch(1)
-        box.addLayout(body, 1)
-        self._show_value(0.0)
+        self._label = text
+        self.kind = kind
+        self._lit = False
+        self.setObjectName("toolMute" if kind == "mute" else "toolEject")
+        self.setFixedHeight(22)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tooltip)
 
-    def set_gain(self, db: float) -> None:
-        self.fader.setValue(db)
-        if not self.fader.isInteracting():
-            self._show_value(db)
+    def text(self) -> str:  # noqa: D401 - API Qt
+        return self._label
 
-    def set_levels(self, levels: tuple[float, float]) -> None:
-        self.vu.set_levels(levels)
+    def is_lit(self) -> bool:
+        return self._lit
 
-    def _on_fader(self, db: float) -> None:
-        self._show_value(db)
-        self.gainChanged.emit(self.index, db)
+    def set_lit(self, lit: bool) -> None:
+        if lit != self._lit:
+            self._lit = lit
+            self.update()
 
-    def _show_value(self, db: float) -> None:
-        self.value_label.setText(f"{format_db(db)} dB")
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
+        hover = self.underMouse()
+        if self._lit:
+            p.setPen(QPen(QColor(styles.RED_MUTE), 1))
+            p.setBrush(styles.color(styles.RED_MUTE, 0.28))
+        else:
+            p.setPen(QPen(QColor(styles.GREEN_DIM if hover else styles.BORDER_COLUMN), 1))
+            p.setBrush(QColor(styles.BUTTON_HOVER if hover else styles.BG_DEEP))
+        p.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        p.setFont(styles.font(9, QFont.Weight.DemiBold))
+        p.setPen(QColor(styles.TEXT_PRIMARY if self._lit or hover else styles.TEXT_SECONDARY))
+        text_rect = rect.adjusted(5, 0, -5, 0)
+        text = p.fontMetrics().elidedText(self._label, Qt.TextElideMode.ElideRight, int(text_rect.width()))
+        p.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
 
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().enterEvent(event)
 
-class OutputsPanel(QFrame):
-    """« HARDWARE OUTPUTS » : A1, A2, A3.
-
-    Seule A1 (le casque / monitoring) a un niveau fourni par le moteur ; les
-    VU de A2 et A3 s'animent si MixerLevels expose un champ `buses`."""
-
-    gainChanged = Signal(int, float)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("creamGroup")
-        box = QVBoxLayout(self)
-        box.setContentsMargins(4, 6, 4, 4)
-        box.setSpacing(2)
-        title = QLabel("HARDWARE OUTPUTS")
-        title.setObjectName("creamTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        box.addWidget(title)
-        row = QHBoxLayout()
-        row.setSpacing(0)
-        self.outputs: list[OutputStrip] = []
-        for index, label in enumerate(OUTPUT_LABELS):
-            strip = OutputStrip(index, label)
-            strip.setProperty("last", index == len(OUTPUT_LABELS) - 1)
-            strip.gainChanged.connect(self.gainChanged)
-            row.addWidget(strip)
-            self.outputs.append(strip)
-        box.addLayout(row, 1)
-
-    def set_gain(self, index: int, db: float) -> None:
-        if 0 <= index < len(self.outputs):
-            self.outputs[index].set_gain(db)
-
-    def limit_to(self, count: int) -> None:
-        """Mode autonome : une seule sortie (le volume général de Windows) ; les autres sont cachées."""
-        count = max(1, min(count, len(self.outputs)))
-        for index, strip in enumerate(self.outputs):
-            strip.setVisible(index < count)
-            strip.setProperty("last", index == count - 1)
-
-    def set_precision(self, on: bool) -> None:
-        """VU-mètres haute précision (disposition FL Studio / MAO)."""
-        for strip in self.outputs:
-            strip.vu.set_precision(on)
-
-    def set_levels(self, master: tuple[float, float], buses=None) -> None:
-        """master : niveau du bus casque (A1). buses : [(g, d), …] si le moteur en fournit."""
-        self.outputs[0].set_levels(master)
-        for index, levels in enumerate(buses or (), start=0):
-            if 0 < index < len(self.outputs):
-                self.outputs[index].set_levels(levels)
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().leaveEvent(event)
 
 
 class MasterWidget(QFrame):
@@ -378,7 +320,6 @@ class MasterWidget(QFrame):
     headphoneChanged = Signal(float)
     muteAllRequested = Signal()
     ejectAllRequested = Signal()
-    eqChanged = Signal(str, float)        # ("bass" | "mid" | "treble", dB)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -386,13 +327,13 @@ class MasterWidget(QFrame):
         self.setFixedWidth(MASTER_WIDTH)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 10, 8, 8)
+        layout.setSpacing(10)
 
         header = QHBoxLayout()
         header.setContentsMargins(2, 0, 0, 0)
         header.setSpacing(4)
-        title = QLabel("MASTER")
+        title = QLabel("Master")
         title.setObjectName("masterTitle")
         header.addWidget(title)
         header.addStretch(1)
@@ -404,110 +345,55 @@ class MasterWidget(QFrame):
         header.addWidget(self.gear)
         layout.addLayout(header)
 
-        status = QHBoxLayout()
-        status.setSpacing(4)
         self.badge = ConnectionBadge()
-        status.addWidget(self.badge, 1)
+        layout.addWidget(self.badge)
         self.project = ProjectButton()
         self.project.clicked.connect(self.projectRequested)
-        status.addWidget(self.project, 1)
-        layout.addLayout(status)
+        layout.addWidget(self.project)
         self.update_button = UpdateButton()
         self.update_button.clicked.connect(self.updateRequested)
         layout.addWidget(self.update_button)
 
-        # MUTE ALL / EJECT ALL
-        tools = QHBoxLayout()
-        tools.setSpacing(6)
-        self.mute_all = QPushButton("MUTE ALL")
-        self.mute_all.setObjectName("toolMute")
-        self.mute_all.setToolTip("Coupe (ou rétablit) toutes les entrées")
+        # MUTE ALL / EJECT ALL : deux pills sous le projet
+        self.mute_all = ToolPill("MUTE ALL", "mute", "Coupe (ou rétablit) toutes les entrées")
         self.mute_all.clicked.connect(self.muteAllRequested)
-        self.eject_all = QPushButton("EJECT ALL")
-        self.eject_all.setObjectName("toolEject")
-        self.eject_all.setToolTip("Déconnecte toutes les entrées de tous les bus")
+        layout.addWidget(self.mute_all)
+        self.eject_all = ToolPill("EJECT ALL", "eject", "Déconnecte toutes les entrées de tous les bus")
         self.eject_all.clicked.connect(self.ejectAllRequested)
-        for button in (self.mute_all, self.eject_all):
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            tools.addWidget(button, 1)
-        layout.addLayout(tools)
+        layout.addWidget(self.eject_all)
 
-        # Bouton MASTER (volume du casque) | VU à LED + spectre
-        top = QHBoxLayout()
-        top.setSpacing(6)
         knob_section = make_section()
         knob_box = QVBoxLayout(knob_section)
-        knob_box.setContentsMargins(6, 8, 6, 8)
+        knob_box.setContentsMargins(6, 10, 6, 10)
         knob_box.setSpacing(2)
-        self.knob = HardwareKnob(diameter=HEADPHONE_KNOB, checkable=False, smooth=True, on_dark=True)
+        self.knob = Knob(diameter=HEADPHONE_KNOB, checkable=False, smooth=True)
         self.knob.color_element, self.knob.color_scope = "headphone", styles.MASTER_SCOPE
-        self.knob.setToolTip("Volume master (casque) — double-clic : 0 dB")
+        self.knob.setToolTip("Volume du casque — double-clic : 0 dB")
         self.knob.valueChanged.connect(self._on_knob)
         knob_box.addWidget(self.knob, 0, Qt.AlignmentFlag.AlignHCenter)
         self.value_label = QLabel()
         self.value_label.setObjectName("masterValue")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         knob_box.addWidget(self.value_label)
-        caption = QLabel("MASTER")
+        caption = QLabel("Casque")
         caption.setObjectName("masterLabel")
         caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         knob_box.addWidget(caption)
-        top.addWidget(knob_section, 1)
+        layout.addWidget(knob_section)
 
-        spectrum_section = make_section()
-        spectrum_box = QHBoxLayout(spectrum_section)
-        spectrum_box.setContentsMargins(6, 6, 6, 6)
-        spectrum_box.setSpacing(4)
-        self.vu = LedVuMeter(channels=2, bar_width=6, gap=3, margin_top=4, margin_bottom=4,
-                             clip_leds=True)
+        self.media = MediaWidget()
+        self.media.hide()                 # affiché si les contrôles média de Windows répondent
+        layout.addWidget(self.media)
+
+        vu_section = make_section()
+        vu_box = QHBoxLayout(vu_section)
+        vu_box.setContentsMargins(0, 12, 0, 12)
+        vu_box.addStretch(1)
+        self.vu = VuMeter(channels=2, bar_width=10, gap=24, margin_top=4, margin_bottom=4, clip_leds=True)
         self.vu.color_scope = styles.MASTER_SCOPE
-        spectrum_box.addWidget(self.vu)
-        self.spectrum = SpectrumDisplay()
-        spectrum_box.addWidget(self.spectrum, 1)
-        top.addWidget(spectrum_section, 1)
-        layout.addLayout(top)
-
-        # VU à aiguille (gauche / droite)
-        needles = QHBoxLayout()
-        needles.setSpacing(6)
-        self.vu_left = AnalogVu("L")
-        self.vu_right = AnalogVu("R")
-        needles.addWidget(self.vu_left)
-        needles.addWidget(self.vu_right)
-        layout.addLayout(needles)
-
-        # Magnéto
-        self.tape = TapeDeck()
-        layout.addWidget(self.tape)
-        layout.addStretch(1)
-
-        # INTELLIPAN : égaliseur 3 bandes
-        eq_section = make_section()
-        self.eq_section = eq_section
-        eq_box = QVBoxLayout(eq_section)
-        eq_box.setContentsMargins(6, 6, 6, 6)
-        eq_box.setSpacing(2)
-        eq_title = QLabel("INTELLIPAN")
-        eq_title.setObjectName("sectionTitle")
-        eq_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        eq_box.addWidget(eq_title)
-        knobs = QHBoxLayout()
-        knobs.setSpacing(2)
-        self.eq: dict[str, DialKnob] = {}
-        for band, text in (("bass", "BASS"), ("mid", "MID"), ("treble", "TREBLE")):
-            dial = DialKnob(-EQ_RANGE_DB, EQ_RANGE_DB, 0.0, EQ_KNOB, on_dark=True)
-            dial.valueChanged.connect(lambda value, b=band: self.eqChanged.emit(b, value))
-            cell = QVBoxLayout()
-            cell.setSpacing(0)
-            cell.addWidget(dial, 0, Qt.AlignmentFlag.AlignHCenter)
-            label = QLabel(text)
-            label.setObjectName("masterLabel")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            cell.addWidget(label)
-            knobs.addLayout(cell)
-            self.eq[band] = dial
-        eq_box.addLayout(knobs)
-        layout.addWidget(eq_section)
+        vu_box.addWidget(self.vu)
+        vu_box.addStretch(1)
+        layout.addWidget(vu_section, 1)
 
         self._show_value(0.0)
         self.apply_colors()
@@ -526,22 +412,18 @@ class MasterWidget(QFrame):
 
     def set_levels(self, levels: tuple[float, float]) -> None:
         self.vu.set_levels(levels)
-        self.vu_left.set_level(levels[0])
-        self.vu_right.set_level(levels[1])
-        self.spectrum.set_levels(levels)
 
-    def set_eq(self, band: str, db: float) -> None:
-        if band in self.eq:
-            self.eq[band].setValue(db)
+    def set_all_muted(self, muted: bool) -> None:
+        """« MUTE ALL » reste allumé tant que toutes les entrées sont coupées."""
+        self.mute_all.set_lit(muted)
 
-    def set_voicemeeter_tools(self, visible: bool) -> None:
-        """Magnéto, égaliseur Intellipan et « Eject all » n'existent que dans Voicemeeter : le mode
-        autonome (B) les cache plutôt que d'afficher des commandes qui n'agissent sur rien."""
-        for widget in (self.tape, self.eq_section, self.eject_all):
-            widget.setVisible(visible)
+    def set_eject_available(self, available: bool) -> None:
+        """« EJECT ALL » déconnecte les entrées des bus de Voicemeeter : le mode autonome (B) le cache
+        plutôt que d'afficher une commande qui n'agit sur rien."""
+        self.eject_all.setVisible(available)
 
     def set_precision(self, on: bool) -> None:
-        """VU-mètre haute précision (disposition FL Studio / MAO)."""
+        """VU-mètre haute précision (arrangement studio du mode musical)."""
         self.vu.set_precision(on)
 
     def set_status(self, ok: bool, text: str, detail: str = "") -> None:

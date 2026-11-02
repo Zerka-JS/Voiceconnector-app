@@ -14,7 +14,7 @@ from core.profile_import import (ChannelSource, ProfileError, default_profile, l
 def sample() -> dict:
     return {
         "format": "voiceconnector-profile", "version": 1, "name": "Mon studio",
-        "software": "fl_studio", "layout": "fl_studio", "theme": "slate",
+        "software": "fl_studio", "theme": "slate",
         "channels": [
             {"name": "Master", "role": "master", "source": {"type": "fl_track", "track": 0}},
             {"name": "Discord", "role": "discord", "source": {"type": "app", "key": "discord.exe"},
@@ -34,7 +34,7 @@ def active(key: str) -> ad.ActiveApp:
 def test_parse_a_complete_profile():
     profile = parse_profile(sample())
     assert profile.name == "Mon studio" and profile.software == "fl_studio"
-    assert profile.layout == "fl_studio" and profile.theme == "slate"
+    assert profile.theme == "slate"
     master, discord, mic = profile.channels
     assert master.source == ChannelSource("fl_track", track=0) and master.role == "master"
     assert discord.source == ChannelSource("app", "discord.exe") and discord.gain == -6.5 and discord.mute
@@ -44,7 +44,7 @@ def test_parse_a_complete_profile():
 
 def test_parse_is_lenient_about_optional_fields():
     profile = parse_profile({"channels": [{"source": {"type": "master"}}]})
-    assert profile.name == "Profil importé" and profile.software == "" and profile.layout == ""
+    assert profile.name == "Profil importé" and profile.software == "" and profile.theme == ""
     channel = profile.channels[0]
     assert channel.name == "Canal 1" and channel.role is None
     assert channel.gain is None and channel.mute is None            # on ne touche pas au son de la source
@@ -52,11 +52,18 @@ def test_parse_is_lenient_about_optional_fields():
 
 
 def test_unknown_references_are_dropped_not_fatal():
-    data = sample() | {"software": "logiciel-inconnu", "layout": "bizarre", "theme": "rose"}
+    data = sample() | {"software": "logiciel-inconnu", "theme": "rose"}
     data["channels"][0]["role"] = "chef"
     profile = parse_profile(data)
-    assert (profile.software, profile.layout, profile.theme) == ("", "", "")
+    assert (profile.software, profile.theme) == ("", "")
     assert profile.channels[0].role is None
+
+
+def test_an_older_profile_with_a_layout_is_still_read_and_the_layout_is_ignored():
+    """Les profils exportés avant la suppression des layouts portent encore la clé « layout »."""
+    profile = parse_profile(sample() | {"layout": "streaming"})
+    assert profile == parse_profile(sample())
+    assert not hasattr(profile, "layout") and "layout" not in profile_to_dict(profile)
 
 
 def test_values_are_clamped_and_cleaned():
@@ -147,7 +154,7 @@ def test_load_accepts_a_utf8_bom_and_accents(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_fl_studio_profile_has_the_studio_buses_synced_with_fl_tracks():
     profile = default_profile(ad.known_app("fl_studio"))
-    assert profile.layout == "fl_studio" and profile.software == "fl_studio"
+    assert profile.software == "fl_studio"
     assert [c.name for c in profile.channels][:4] == ["Master", "Bus Batterie", "Synths", "FX"]
     assert [c.source.track for c in profile.channels[:4]] == [0, 1, 2, 3]
     assert profile.channels[-1].source.type == "capture" and profile.uses_fl_sync
@@ -161,20 +168,20 @@ def test_fl_studio_without_sync_is_an_ordinary_application():
 
 def test_other_daws_get_master_and_their_own_session():
     profile = default_profile(ad.known_app("ableton"))
-    assert profile.layout == "fl_studio" and not profile.uses_fl_sync
+    assert not profile.uses_fl_sync
     assert profile.channels[0].source.type == "master"
     assert any(c.source == ChannelSource("app", "ableton") for c in profile.channels)
 
 
-@pytest.mark.parametrize("key, layout, names", [
-    ("obs", "streaming", ["Micro", "Game", "Discord", "Music"]),
-    ("discord", "streaming", ["Micro", "Game", "Discord", "Music"]),
-    ("audacity", "podcast", ["Voix", "Invité / Appel", "Musique / Jingles"]),
-    ("zoom", "podcast", ["Voix", "Invité / Appel", "Musique / Jingles"]),
+@pytest.mark.parametrize("key, names", [
+    ("obs", ["Micro", "Game", "Discord", "Music"]),
+    ("discord", ["Micro", "Game", "Discord", "Music"]),
+    ("audacity", ["Voix", "Invité / Appel", "Musique / Jingles"]),
+    ("zoom", ["Voix", "Invité / Appel", "Musique / Jingles"]),
 ])
-def test_voice_and_broadcast_profiles(key, layout, names):
+def test_voice_and_broadcast_profiles(key, names):
     profile = default_profile(ad.known_app(key))
-    assert profile.layout == layout and [c.name for c in profile.channels] == names
+    assert [c.name for c in profile.channels] == names
     assert profile.software == key
 
 
@@ -185,14 +192,14 @@ def test_podcast_guest_is_the_voice_chat_application_itself_or_to_choose():
 
 def test_generic_profile_without_software():
     profile = default_profile(None)
-    assert profile.layout == "standard" and profile.software == ""
+    assert profile.software == ""
     assert profile.channels[0].source.type == "master"
 
 
 @pytest.mark.parametrize("app", ad.KNOWN_APPS, ids=lambda a: a.key)
 def test_every_default_profile_is_valid_and_round_trips(app):
     profile = default_profile(app)
-    assert profile.layout in lm.LAYOUT_PRESETS and 1 <= len(profile.channels) <= pi.MAX_CHANNELS
+    assert 1 <= len(profile.channels) <= pi.MAX_CHANNELS
     assert all(c.role in lm.ALL_ROLES or c.role is None for c in profile.channels)
     assert parse_profile(profile_to_dict(profile)) == profile
 

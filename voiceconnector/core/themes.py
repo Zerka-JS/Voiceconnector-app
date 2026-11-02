@@ -1,8 +1,8 @@
 """
 Thèmes globaux de l'interface (données pures, sans Qt).
 
-Un thème global habille toute la console : couleurs de l'interface, peau des
-tranches (strips), formes (rayons des coins) et arrière-plan. Les quatre
+Un thème global habille toute la console : couleurs de l'interface, couleurs
+d'état (VU, Muet, Solo), formes (rayons des coins) et arrière-plan. Les quatre
 thèmes proposés dans Réglages → « Mode et thème » :
 
 - retro      : Rétro — écran VFD, néons violets, grille « Neon Wave Synth » ;
@@ -10,9 +10,9 @@ thèmes proposés dans Réglages → « Mode et thème » :
 - flat       : Épuré — minimaliste, clair, aplats nets (Flat Modern) ;
 - slate      : Studio Pro — gris ardoise de studio, accent bleu (Dark Slate).
 
-Ils s'ajoutent aux thèmes de couleur d'accent historiques (ui.theme : vintage,
-studio, neon, cyan… ou « #rrggbb »), qui gardent leur peau crème. Le choix est
-mémorisé dans la même clé `ui.theme`.
+Ils s'ajoutent aux thèmes de couleur d'accent (ui.theme : studio, neon, cyan…
+ou « #rrggbb »), qui gardent les couleurs d'état et les coins par défaut. Le choix
+est mémorisé dans la même clé `ui.theme`.
 
 Ce module ne fait que décrire les thèmes et les vérifier (lisibilité WCAG) ;
 c'est `ui/styles.py` qui les applique aux variables que lisent les widgets.
@@ -31,12 +31,6 @@ PALETTE_KEYS = (
     "BORDER_COLUMN", "BORDER_SECTION", "TEXT_PRIMARY", "TEXT_SECONDARY", "TEXT_MUTED",
     "BUTTON_BG", "BUTTON_HOVER", "PILL_BG", "PILL_BORDER", "KNOB_CAP_TOP",
     "KNOB_CAP_BOTTOM", "BG_DEEP", "ON_ACCENT", "ON_ACCENT_DARK", "BADGE_OFF",
-)
-# Peau des tranches (crème d'origine) : fond, filets, touches, encre, bois, châssis
-SKIN_KEYS = (
-    "CREAM", "CREAM_DARK", "CREAM_EDGE", "CREAM_KEY", "INK", "INK_SOFT",
-    "WOOD_LIGHT", "WOOD_DARK", "CHASSIS_TOP", "CHASSIS_BOTTOM",
-    "GROUP_BORDER", "BAY_BG", "TRANSPORT_TOP", "TRANSPORT_BOTTOM",
 )
 # Autres couleurs que le thème peut remplacer (texte de sélection, VU, boutons d'état)
 EXTRA_KEYS = (
@@ -62,7 +56,6 @@ class ThemeSpec:
     dark: bool
     accent: str                            # couleur d'accent (pastille, aperçu)
     palette: Mapping[str, str]             # toutes les PALETTE_KEYS
-    skin: Mapping[str, str]                # SKIN_KEYS
     extras: Mapping[str, str] = field(default_factory=dict)
     shape: Mapping[str, int] = field(default_factory=dict)
     backdrop: str = "slate"
@@ -71,17 +64,9 @@ class ThemeSpec:
         """Toutes les variables de style que ce thème impose."""
         merged: dict[str, str | int] = {**DEFAULT_SHAPE}
         merged.update(self.palette)
-        merged.update(self.skin)
         merged.update(self.extras)
         merged.update(self.shape)
         return merged
-
-    def preview_colors(self) -> dict[str, str]:
-        """Quelques couleurs pour dessiner la carte d'aperçu sans appliquer le thème."""
-        return {"window": self.palette["BG_WINDOW"], "column": self.palette["BG_COLUMN"],
-                "strip": self.skin["CREAM"], "ink": self.skin["INK"],
-                "accent": self.accent, "text": self.palette["TEXT_PRIMARY"],
-                "border": self.palette["BORDER_COLUMN"]}
 
 
 # --------------------------------------------------------------------------- #
@@ -102,14 +87,6 @@ RETRO = ThemeSpec(
         "BUTTON_BG": "#221342", "BUTTON_HOVER": "#2e1a58",
         "KNOB_CAP_TOP": "#4a3a78", "KNOB_CAP_BOTTOM": "#1a1030",
         "ON_ACCENT": "#04181a", "ON_ACCENT_DARK": "#04181a", "BADGE_OFF": "#120a26",
-    },
-    skin={
-        "CREAM": "#1c1136", "CREAM_DARK": "#150c2b", "CREAM_EDGE": "#3b2472",
-        "CREAM_KEY": "#2b1a52", "INK": "#7ff7e3", "INK_SOFT": "#5fb9ae",
-        "WOOD_LIGHT": "#3b2472", "WOOD_DARK": "#241547",
-        "CHASSIS_TOP": "#1a0f33", "CHASSIS_BOTTOM": "#0a0618",
-        "GROUP_BORDER": "#4a2a8a", "BAY_BG": "rgba(255, 60, 172, 0.07)",
-        "TRANSPORT_TOP": "#3a2468", "TRANSPORT_BOTTOM": "#1f1240",
     },
     extras={
         "SELECTION_TEXT": "#ffffff", "VU_GREEN": "#2ef2d0", "VU_YELLOW": "#ffd23f",
@@ -135,14 +112,6 @@ CYBERPUNK = ThemeSpec(
         "KNOB_CAP_TOP": "#3c4a5e", "KNOB_CAP_BOTTOM": "#121824",
         "ON_ACCENT": "#001318", "ON_ACCENT_DARK": "#001318", "BADGE_OFF": "#0a1222",
     },
-    skin={
-        "CREAM": "#0e1627", "CREAM_DARK": "#09101e", "CREAM_EDGE": "#1f4a66",
-        "CREAM_KEY": "#152540", "INK": "#c9f4ff", "INK_SOFT": "#6fa8bd",
-        "WOOD_LIGHT": "#1a3550", "WOOD_DARK": "#102338",
-        "CHASSIS_TOP": "#0b1426", "CHASSIS_BOTTOM": "#04060d",
-        "GROUP_BORDER": "#0f6d80", "BAY_BG": "rgba(0, 229, 255, 0.05)",
-        "TRANSPORT_TOP": "#233049", "TRANSPORT_BOTTOM": "#101828",
-    },
     extras={
         "SELECTION_TEXT": "#ffffff", "VU_GREEN": "#00e5ff", "VU_YELLOW": "#fcee0a",
         "VU_RED": "#ff2a6d", "MUTE_ON": "#c8003a", "MUTE_ON_HOVER": "#ff1f5a",
@@ -167,14 +136,6 @@ FLAT = ThemeSpec(
         "KNOB_CAP_TOP": "#f9fafb", "KNOB_CAP_BOTTOM": "#cfd6e0",
         "ON_ACCENT": "#ffffff", "ON_ACCENT_DARK": "#ffffff", "BADGE_OFF": "#e9edf3",
     },
-    skin={
-        "CREAM": "#ffffff", "CREAM_DARK": "#ffffff", "CREAM_EDGE": "#e3e8ef",
-        "CREAM_KEY": "#f3f5f9", "INK": "#111827", "INK_SOFT": "#6b7280",
-        "WOOD_LIGHT": "#dfe5ee", "WOOD_DARK": "#d3dae5",
-        "CHASSIS_TOP": "#eef1f5", "CHASSIS_BOTTOM": "#e6eaf0",
-        "GROUP_BORDER": "#d5dce6", "BAY_BG": "rgba(15, 23, 42, 0.04)",
-        "TRANSPORT_TOP": "#f6f8fb", "TRANSPORT_BOTTOM": "#dfe5ee",
-    },
     extras={
         "SELECTION_TEXT": "#0f172a", "VU_GREEN": "#16a34a", "VU_YELLOW": "#f59e0b",
         "VU_RED": "#dc2626", "MUTE_ON": "#dc2626", "MUTE_ON_HOVER": "#b91c1c",
@@ -198,14 +159,6 @@ SLATE = ThemeSpec(
         "BUTTON_BG": "#1f2b3f", "BUTTON_HOVER": "#293851",
         "KNOB_CAP_TOP": "#46556e", "KNOB_CAP_BOTTOM": "#18202e",
         "ON_ACCENT": "#071320", "ON_ACCENT_DARK": "#071320", "BADGE_OFF": "#131c2b",
-    },
-    skin={
-        "CREAM": "#1b2638", "CREAM_DARK": "#162030", "CREAM_EDGE": "#2d3d57",
-        "CREAM_KEY": "#24324a", "INK": "#e6edf7", "INK_SOFT": "#8fa3bf",
-        "WOOD_LIGHT": "#2d3d57", "WOOD_DARK": "#1f2c42",
-        "CHASSIS_TOP": "#162030", "CHASSIS_BOTTOM": "#0e1521",
-        "GROUP_BORDER": "#0a101a", "BAY_BG": "rgba(148, 163, 184, 0.06)",
-        "TRANSPORT_TOP": "#34425c", "TRANSPORT_BOTTOM": "#1c2638",
     },
     extras={
         "SELECTION_TEXT": "#ffffff", "VU_GREEN": "#22c55e", "VU_YELLOW": "#facc15",
@@ -260,15 +213,12 @@ CONTRAST_RULES: tuple[tuple[str, str, float], ...] = (
     ("ON_ACCENT_DARK", "GREEN_NEON", 4.5), ("ON_ACCENT_DARK", "GREEN_BRIGHT", 4.5),
     ("ON_ACCENT", "GREEN_NEON", 4.5),
     ("SELECTION_TEXT", "GREEN_DIM", 4.5),
-    ("INK", "CREAM", 7.0), ("INK", "CREAM_DARK", 7.0), ("INK", "CREAM_KEY", 7.0),
-    ("INK_SOFT", "CREAM", 4.5), ("INK_SOFT", "CREAM_DARK", 4.5),
-    ("TEXT_PRIMARY", "TRANSPORT_TOP", 4.5), ("TEXT_PRIMARY", "TRANSPORT_BOTTOM", 4.5),
     ("TEXT_ON_SOLO", "SOLO_ON", 4.5), ("#ffffff", "MUTE_ON", 4.5),
 )
 # Fonds qui doivent se distinguer de ce qui les entoure (contraste minimal)
 SEPARATION_RULES: tuple[tuple[str, str, float], ...] = (
     ("BG_COLUMN", "BG_WINDOW", 1.03), ("BORDER_COLUMN", "BG_COLUMN", 1.25),
-    ("CREAM_EDGE", "CREAM", 1.1), ("BUTTON_BG", "BG_COLUMN", 1.03),
+    ("BUTTON_BG", "BG_COLUMN", 1.03),
 )
 
 
@@ -276,13 +226,11 @@ def check_theme(spec: ThemeSpec) -> list[str]:
     """Problèmes d'un thème : clés manquantes, couleurs invalides, textes illisibles.
     Liste vide = thème complet et lisible."""
     problems: list[str] = []
-    for group, keys, source in (("palette", PALETTE_KEYS, spec.palette),
-                                ("peau", SKIN_KEYS, spec.skin)):
-        for key in keys:
-            if key not in source:
-                problems.append(f"{spec.key} : {group} sans {key}")
-    unknown = (set(spec.palette) - set(PALETTE_KEYS)) | (set(spec.skin) - set(SKIN_KEYS)) \
-        | (set(spec.extras) - set(EXTRA_KEYS)) | (set(spec.shape) - set(SHAPE_KEYS))
+    for key in PALETTE_KEYS:
+        if key not in spec.palette:
+            problems.append(f"{spec.key} : palette sans {key}")
+    unknown = (set(spec.palette) - set(PALETTE_KEYS)) | (set(spec.extras) - set(EXTRA_KEYS)) \
+        | (set(spec.shape) - set(SHAPE_KEYS))
     problems.extend(f"{spec.key} : clé inconnue {key}" for key in sorted(unknown))
     if spec.backdrop not in BACKDROPS:
         problems.append(f"{spec.key} : arrière-plan inconnu {spec.backdrop}")

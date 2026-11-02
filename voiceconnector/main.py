@@ -42,7 +42,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import (QLockFile, QRectF, QThread, Qt, QtMsgType, QTimer, QUrl, Signal,
+from PySide6.QtCore import (QEvent, QLockFile, QRectF, QThread, Qt, QtMsgType, QTimer, QUrl, Signal,
                             qInstallMessageHandler)
 from PySide6.QtGui import QColor, QDesktopServices, QFontDatabase, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
@@ -57,6 +57,7 @@ from core.process_manager import (AppNotInstalledError, OtherEditionRunningError
                                   installed_voicemeeter_kinds, reaper_project)
 from core.effects import HOST_NONE, HOST_REAPER, EffectsHost, create_host, host_kind
 from core.fl_sync import mido_available
+from core.media import DemoMedia, create_media_backend
 from core.layout_manager import MODE_STANDALONE, MODE_VOICEMEETER
 from core.session_coordinator import SessionCoordinator
 from core.session_mode import SessionSettings
@@ -427,7 +428,8 @@ class MixerApp:
             self._window = MainWindow(cfg=self._cfg, vm=self._vm,
                                       reaper=self._host, processes=self._processes,
                                       apps=create_backend(self._cfg), updater=self._updater,
-                                      session=self._session, detector=self._detector)
+                                      session=self._session, detector=self._detector,
+                                      media=create_media_backend(self._cfg))
             if self._host.kind != HOST_REAPER:
                 self._host.start()    # FL Studio, Equalizer APO : dans le thread UI
         except Exception as exc:
@@ -644,6 +646,20 @@ def _safely(func: Callable, *args, **kwargs) -> None:
 # --------------------------------------------------------------------------- #
 # Point d'entrée
 # --------------------------------------------------------------------------- #
+def release_qt_objects(app: QApplication, *objects) -> None:
+    """Détruit les fenêtres et `objects` par la voie normale de Qt, avant la fin de l'interpréteur.
+
+    Sinon PySide détruit d'un coup, à l'arrêt, tout ce que Python possède encore ; une connexion à une
+    lambda qui cite l'objet (`signal.connect(lambda: self.refresh())`) libère alors l'objet en pleine
+    destruction : double suppression, plantage à la fermeture."""
+    for widget in app.topLevelWidgets():
+        widget.deleteLater()
+    for obj in objects:
+        obj.deleteLater()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
 def _instance_name() -> str:
     """Nom du canal local entre deux lancements de VoiceConnector (propre à l'utilisateur)."""
     user = os.environ.get("USERNAME") or os.environ.get("USER") or "user"
@@ -731,7 +747,7 @@ def run_demo(app: QApplication, cfg: dict, selftest: str | None, host: str | Non
     """Console avec des moteurs simulés ; avec --selftest, capture puis quitte.
 
     Les logiciels détectés sont simulés aussi (FL Studio, Discord, OBS) : le bouton « Mode musical »
-    apparaît pour FL Studio. Avec `--mode b`, la console est celle du mode autonome (sans Voicemeeter),
+    apparaît pour FL Studio, et le lecteur de musique du Master joue des morceaux simulés. Avec `--mode b`, la console est celle du mode autonome (sans Voicemeeter),
     sur un audio Windows simulé."""
     from core.app_volume import DemoAppVolumes
     from core.demo import DemoProcesses, DemoVoicemeeter, demo_detector
@@ -752,7 +768,7 @@ def run_demo(app: QApplication, cfg: dict, selftest: str | None, host: str | Non
                                      fl_sync_available=mido_available())
         session.start(detector.scan_now())
     window = MainWindow(cfg=cfg, vm=vm, reaper=reaper, processes=processes, persist=False,
-                        apps=DemoAppVolumes(), session=session, detector=detector)
+                        apps=DemoAppVolumes(), session=session, detector=detector, media=DemoMedia())
     if reaper.kind != HOST_REAPER:
         reaper.start()
     if selftest is None:
@@ -838,8 +854,12 @@ def run_selftest(app: QApplication, cfg: dict, window: MainWindow, vm, reaper, p
             pump(0.1)
     problems.extend(_selftest_app_volume(report))
 
-    # Dispositions, thèmes globaux et bouton « Mode musical »
-    problems.extend(_selftest_layouts(report, window, pump, capture, image))
+    # Bouton « Mode musical », arrangement studio et thèmes globaux
+    problems.extend(_selftest_modes(report, window, pump, capture, image))
+
+    # Musique en cours (Master) et fenêtre Studio
+    problems.extend(_selftest_media(report, window))
+    problems.extend(_selftest_studio(report, window, pump, capture, image))
 
     # Mises à jour : infos du build embarquées, fenêtre de mise à jour, accès en ligne
     problems.extend(_selftest_updates(report, window, pump, capture, image))
@@ -883,15 +903,15 @@ def _selftest_app_volume(report: list[str]) -> list[str]:
     return []
 
 
-def _selftest_layouts(report: list[str], window: MainWindow, pump, capture, image: Path) -> list[str]:
-    """Chaque disposition et chaque thème global sont appliqués puis capturés ; le bouton « Mode musical »
-    n'existe que pour un logiciel musical (FL Studio : visible ; Discord : caché)."""
-    from core.layout_manager import LAYOUT_PRESETS, PRESET_ORDER
+def _selftest_modes(report: list[str], window: MainWindow, pump, capture, image: Path) -> list[str]:
+    """Le bouton « Mode musical » n'existe que pour un logiciel musical (FL Studio : visible ; Discord :
+    caché) ; le mode musical range les tranches en arrangement studio ; chaque thème global est appliqué
+    puis capturé."""
     from core.themes import GLOBAL_THEME_ORDER
 
     problems: list[str] = []
     session, ui_cfg = window._session, window._cfg.setdefault("ui", {})
-    first_layout, first_theme, first_app = session.layouts.selector_value, ui_cfg.get("theme"), session.session.app
+    first_theme, first_app = ui_cfg.get("theme"), session.session.app
     try:
         button = window.action_bar.music_button
         window._apply_change(session.select_app("fl_studio"))
@@ -903,20 +923,14 @@ def _selftest_layouts(report: list[str], window: MainWindow, pump, capture, imag
         if session.button().visible or button.isVisible():
             problems.append("bouton « Mode musical » visible pour Discord")
         window._apply_change(session.select_app("fl_studio"))
-        for key in PRESET_ORDER:
-            window._apply_change(session.set_layout(key))
-            pump(0.3)
-            plan = window._plan
-            if plan is None or session.preset != key or not plan.groups:
-                problems.append(f"disposition « {LAYOUT_PRESETS[key].name} » non appliquée")
-            capture(image.with_name(f"{image.stem}_disposition_{key}{image.suffix}"), window)
         if session.standalone:
             report.append("INFO mode musical non essayé (mode autonome)")
         else:
             window._on_music_toggled(True)
             pump(0.3)
             if not session.music_on or session.preset != "fl_studio":
-                problems.append("mode musical : disposition FL Studio non appliquée")
+                problems.append("mode musical : arrangement studio non appliqué")
+            capture(image.with_name(f"{image.stem}_mode_musical{image.suffix}"), window)
             window._on_music_toggled(False)
             pump(0.1)
         for key in GLOBAL_THEME_ORDER:
@@ -926,15 +940,61 @@ def _selftest_layouts(report: list[str], window: MainWindow, pump, capture, imag
             if styles.current_theme() != key:
                 problems.append(f"thème global « {key} » non appliqué")
             capture(image.with_name(f"{image.stem}_theme_{key}{image.suffix}"), window)
-        report.append("OK  dispositions, thèmes globaux et bouton « Mode musical » vérifiés")
+        report.append("OK  bouton « Mode musical », arrangement studio et thèmes globaux vérifiés")
     except Exception as exc:          # une erreur ici est un vrai défaut de build : on la rapporte
-        log.exception("Auto-test des dispositions")
-        problems.append(f"dispositions : {type(exc).__name__}: {exc}")
+        log.exception("Auto-test des modes")
+        problems.append(f"modes : {type(exc).__name__}: {exc}")
     finally:
         window._apply_change(session.select_app(first_app))
-        window._apply_change(session.set_layout(first_layout))
         ui_cfg["theme"] = first_theme if first_theme is not None else styles.DEFAULT_THEME
         window.apply_appearance()
+    return problems
+
+
+def _selftest_media(report: list[str], window: MainWindow) -> list[str]:
+    """Lecteur du Master (démo) affiché ; sous Windows (exe compris), les modules WinRT des contrôles
+    média se chargent et Windows répond."""
+    problems = []
+    media = window.master.media
+    if media.isHidden() or media.info() is None or not media.cover.has_cover():
+        problems.append("lecteur de musique absent du Master")
+    if sys.platform != "win32":
+        return problems
+    try:
+        from core.media import probe_media_controls
+        import winrt.windows.media.control  # noqa: F401
+        import winrt.windows.storage.streams  # noqa: F401
+    except Exception as exc:          # module absent de l'exe : vrai problème de build
+        return problems + [f"musique en cours : {exc}"]
+    if not create_media_backend({}).available:
+        problems.append("musique en cours : moteur Windows indisponible")
+    try:
+        report.append(f"OK  musique en cours : contrôles média de Windows joignables ({probe_media_controls()})")
+    except Exception as exc:          # pas de session utilisateur sur la machine de build
+        report.append(f"INFO musique en cours : {type(exc).__name__}: {exc}")
+    return problems
+
+
+def _selftest_studio(report: list[str], window: MainWindow, pump, capture, image: Path) -> list[str]:
+    """Le bouton « Studio » ouvre la fenêtre Studio (démonstration : aucun logiciel de musique réel)."""
+    problems: list[str] = []
+    try:
+        if window._studio is not None:
+            window._studio.close()
+        window.action_bar.studio_button.click()
+        pump(0.6)
+        studio = window._studio
+        if studio is None or not studio.isVisible():
+            return problems + ["fenêtre Studio non ouverte par le bouton « Studio »"]
+        if not studio.session.opened:
+            problems.append("Studio non relié (même en démonstration)")
+        capture(image.with_name(f"{image.stem}_studio{image.suffix}"), studio)
+        studio.close()
+        pump(0.1)
+        report.append("OK  fenêtre Studio ouverte par le bouton « Studio »")
+    except Exception as exc:
+        log.exception("Auto-test du Studio")
+        problems.append(f"Studio : {type(exc).__name__}: {exc}")
     return problems
 
 
@@ -999,7 +1059,9 @@ def main() -> int:
     styles.apply_theme(app, float(ui_cfg.get("panel_opacity", 1.0)), ui_cfg.get("theme"))
 
     if args.demo or args.selftest:
-        return run_demo(app, cfg, args.selftest, args.host)
+        code = run_demo(app, cfg, args.selftest, args.host)
+        release_qt_objects(app)
+        return code
 
     # Une seule instance : deux consoles se disputeraient Voicemeeter et REAPER.
     # Après un redémarrage, on laisse à l'ancienne instance le temps de s'arrêter.
@@ -1037,6 +1099,7 @@ def main() -> int:
 
     server.close()
     lock.unlock()
+    release_qt_objects(app, server)
     log.info("=== %s arrêté (code %d) ===", config.APP_NAME, exit_code)
     return exit_code
 

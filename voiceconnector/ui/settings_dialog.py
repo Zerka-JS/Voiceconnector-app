@@ -4,9 +4,9 @@ Réglages de VoiceConnector, en onglets :
                            chemins des moteurs
   - Canaux               : noms des canaux
   - Audio                : carte son de REAPER, affichage des moteurs, options
-  - Mode et thème  : mode (A : Voicemeeter + application vocale, B : autonome), thème global
-                           (Rétro, Futuriste, Épuré, Studio Pro), disposition (Standard, FL Studio / MAO,
-                           Streaming / Broadcast, Podcasting / Voix), logiciel suivi (voir layout_settings.py)
+  - Mode et thème        : mode (A : Voicemeeter + application vocale, B : autonome), thème global
+                           (Rétro, Futuriste, Épuré, Studio Pro), logiciel suivi, mode musical, Studio
+                           et rôles des tranches (voir layout_settings.py)
   - Apparence            : couleur d'accent, image d'arrière-plan, transparence des panneaux, fenêtre,
                            lecteur de musique du Master
   - Couleurs             : la couleur de chaque élément (knobs, fader, VU, Muet…), pour toute la console,
@@ -138,7 +138,7 @@ class SettingsDialog(QDialog):
     updateRequested = Signal()       # « Installer la mise à jour »
     stripRenamed = Signal(int, str)  # nom d'un canal modifié
     latencyChanged = Signal()        # tampon de Voicemeeter / périphériques APO modifiés
-    sessionChanged = Signal(object)  # SessionChange : disposition, logiciel suivi, profil (voir MainWindow)
+    sessionChanged = Signal(object)  # SessionChange : mode musical, logiciel suivi, profil (voir MainWindow)
     routeRequested = Signal()        # « Appliquer le routage » vers l'application vocale (mode A)
 
     BUFFER_CHOICES = ((0, "Ne pas modifier"), (512, "Standard — 512 échantillons"),
@@ -161,7 +161,7 @@ class SettingsDialog(QDialog):
         # Édition et moteur d'effets réellement en cours (un choix ne s'applique qu'au redémarrage)
         self._running_kind = getattr(getattr(vm, "edition", None), "kind", None) or edition(cfg).kind
         self._running_host = getattr(reaper, "kind", None) or host_kind(cfg)
-        # Session (mode, logiciel suivi, disposition) : celle de la fenêtre principale, sinon une locale
+        # Session (mode, logiciel suivi, mode musical) : celle de la fenêtre principale, sinon une locale
         self._session = session or SessionCoordinator(cfg, host_kind=self._running_host)
         self._tab_keys: list[str] = []
         self.show_reaper: QCheckBox | None = None
@@ -608,6 +608,11 @@ class SettingsDialog(QDialog):
         box.addWidget(self.minimize_to_tray)
         box.addWidget(_hint("VoiceConnector reste ouverte et le son continue : clique sur l'icône VoiceConnector "
                             "près de l'horloge pour la rouvrir."))
+        self.show_media = QCheckBox("Afficher la musique en cours dans le Master "
+                                    "(pochette, précédent / pause / suivant)")
+        self.show_media.setChecked(bool(self._cfg.get("ui", {}).get("show_media", True)))
+        self.show_media.toggled.connect(self._on_show_media)
+        box.addWidget(self.show_media)
         return group
 
     # ----------------------------------------------------------- À propos
@@ -752,6 +757,9 @@ class SettingsDialog(QDialog):
     def _set_option(self, section: str, key: str, value: bool) -> None:
         self._cfg.setdefault(section, {})[key] = value
         self.optionsChanged.emit()
+
+    def _on_show_media(self, on: bool) -> None:
+        self._set_ui("show_media", on)
 
     def _set_ui(self, key: str, value) -> None:
         self._cfg.setdefault("ui", {})[key] = value

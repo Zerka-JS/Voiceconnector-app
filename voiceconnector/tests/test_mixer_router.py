@@ -31,13 +31,13 @@ def streaming_plan() -> lm.LayoutPlan:
     strips = [lm.StripInfo(0, True, "Micro", "mic", fixed=True), lm.StripInfo(1, False, "Game", "game", fixed=True),
               lm.StripInfo(2, False, "Discord", "discord", fixed=True),
               lm.StripInfo(3, False, "Music", "music", fixed=True)]
-    return lm.build_plan(lm.LAYOUT_PRESETS["streaming"], strips)
+    return lm.build_plan(lm.LAYOUT_PRESETS[lm.STANDARD], strips)
 
 
 def podcast_plan() -> lm.LayoutPlan:
     strips = [lm.StripInfo(0, True, "Voix", "voice", fixed=True), lm.StripInfo(1, False, "Invité", "guest", fixed=True),
               lm.StripInfo(2, False, "Jingles", "music", fixed=True)]
-    return lm.build_plan(lm.LAYOUT_PRESETS["podcast"], strips)
+    return lm.build_plan(lm.LAYOUT_PRESETS[lm.STANDARD], strips)
 
 
 # --------------------------------------------------------------------------- #

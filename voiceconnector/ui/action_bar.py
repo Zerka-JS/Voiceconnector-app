@@ -69,7 +69,7 @@ class ActionBar(QFrame):
         self.studio_button.setObjectName("studioButton")
         self.studio_button.setToolTip(STUDIO_TIP)
         self.studio_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.studio_button.clicked.connect(lambda _checked=False: self.studioRequested.emit())
+        self.studio_button.clicked.connect(self.studioRequested)
         row.addWidget(self.studio_button)
 
         self.sync_led = QLabel("●")

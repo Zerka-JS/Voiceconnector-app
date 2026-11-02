@@ -18,7 +18,6 @@ from ui import styles
 SYNTHWAVE, CYBER, FLAT, SLATE = "synthwave", "cyber", "flat", "slate"
 HORIZON = 0.62                      # position de l'horizon du fond « synthwave » (part de la hauteur)
 GRID_STEP = 32                      # pas du quadrillage « HUD »
-CHEEK = 22                          # joues latérales du fond « Studio Pro »
 
 
 def paint_backdrop(p: QPainter, kind: str, width: int, height: int) -> None:
@@ -55,7 +54,7 @@ def _paint_synthwave(p: QPainter, w: int, h: int) -> None:
     floor.setColorAt(1.0, QColor(styles.BG_DEEP))
     p.fillRect(QRectF(0, horizon, w, h - horizon), floor)
 
-    p.setPen(QPen(styles.color(styles.GROUP_BORDER, 0.85), 1))
+    p.setPen(QPen(styles.color(styles.GREEN_DIM, 0.85), 1))
     rows = 14
     for i in range(1, rows + 1):                                  # lignes horizontales : plus espacées vers le bas
         t = i / rows
@@ -102,24 +101,15 @@ def _paint_flat(p: QPainter, w: int, h: int) -> None:
 
 
 def _paint_slate(p: QPainter, w: int, h: int) -> None:
-    """Plaque d'ardoise brossée de station audio, avec des joues sombres sur les côtés."""
+    """Plaque d'ardoise brossée de station audio."""
     metal = QLinearGradient(0, 0, 0, h)
-    metal.setColorAt(0.0, QColor(styles.CHASSIS_TOP))
-    metal.setColorAt(1.0, QColor(styles.CHASSIS_BOTTOM))
+    metal.setColorAt(0.0, QColor(styles.BG_COLUMN))
+    metal.setColorAt(1.0, QColor(styles.BG_WINDOW))
     p.fillRect(QRectF(0, 0, w, h), metal)
     rng = random.Random(11)
     for y in range(0, h, 2):                                      # brossage : fines lignes peu contrastées
         p.setPen(QPen(QColor(255, 255, 255, rng.choice((0, 0, 3, 5))), 1))
-        p.drawLine(QPointF(CHEEK, y), QPointF(w - CHEEK, y))
-    for left in (True, False):
-        x = 0 if left else w - CHEEK
-        cheek = QLinearGradient(x, 0, x + CHEEK, 0)
-        cheek.setColorAt(0.0, QColor(styles.WOOD_LIGHT if left else styles.WOOD_DARK))
-        cheek.setColorAt(1.0, QColor(styles.WOOD_DARK if left else styles.WOOD_LIGHT))
-        p.fillRect(QRectF(x, 0, CHEEK, h), cheek)
-        edge = x + CHEEK - 1 if left else x
-        p.setPen(QPen(QColor(0, 0, 0, 120), 2))
-        p.drawLine(QPointF(edge, 0), QPointF(edge, h))
+        p.drawLine(QPointF(0, y), QPointF(w, y))
 
 
 _PAINTERS = {SYNTHWAVE: _paint_synthwave, CYBER: _paint_cyber, FLAT: _paint_flat, SLATE: _paint_slate}

@@ -192,8 +192,8 @@ class SessionCoordinator:
 
     @property
     def wants_fl_sync(self) -> bool:
-        """La synchronisation avec le mixer de FL Studio est utile : mode musical actif et logiciel
-        qui sait la faire (mode A), ou profil du mode B qui contient des pistes de FL Studio."""
+        """La synchronisation avec le mixer de FL Studio est utile : mode musical actif (mode A
+        seulement) et logiciel qui sait la faire. En mode B, les pistes du profil ont leur propre liaison."""
         app = self.active.app
         if not self.fl_sync_available or app is None or app.sync is None:
             return False

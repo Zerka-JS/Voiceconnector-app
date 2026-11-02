@@ -1,4 +1,4 @@
-"""Interface des deux modes, des dispositions, des thèmes globaux et du bouton « Mode musical ».
+"""Interface des deux modes, du mode musical, des thèmes globaux et du bouton « Mode musical ».
 
 Console en démo qui « voit » FL Studio, Discord et OBS (comme `--demo`) : mode A avec Voicemeeter
 simulé, mode B avec l'audio de Windows simulé. Les décisions elles-mêmes sont testées sans Qt
@@ -63,7 +63,15 @@ def follow(qapp, window, key: str) -> None:
 
 
 def shown_widgets(window) -> list:
-    return [window.body.itemAt(i).widget() for i in range(window.body.count())]
+    """Les widgets de la rangée, de gauche à droite (l'espace extensible n'en est pas un)."""
+    items = [window.body.itemAt(i).widget() for i in range(window.body.count())]
+    return [widget for widget in items if widget is not None]
+
+
+def shown_strips(window) -> list:
+    from ui.strip_widget import StripWidget
+
+    return [widget for widget in shown_widgets(window) if isinstance(widget, StripWidget)]
 
 
 # --------------------------------------------------------------------------- #
@@ -99,18 +107,22 @@ def test_the_music_mode_ends_when_the_music_software_goes_away(qapp, console):
     assert session.preset == "standard"
 
 
-def test_the_music_mode_switches_to_the_studio_layout_and_back(qapp, console):
+def test_the_music_mode_switches_to_the_studio_arrangement_and_back(qapp, console):
     window, _, session = console
     assert session.preset == "standard" and shown_widgets(window)[-1] is window.master
+    assert len(shown_strips(window)) == len(window.strips)      # la console montre toutes les tranches
     window._on_music_toggled(True)
     pump(qapp, 0.1)
     assert session.music_on and session.preset == "fl_studio" and window.action_bar.music_button.isChecked()
-    assert shown_widgets(window)[0] is window.master            # Master à gauche dans la disposition studio
-    assert not window._matrix_panel.isVisible()
+    plan = window._plan
+    assert [s.index for s in shown_strips(window)] == list(plan.order)      # Master, Bus Batterie, Synths, FX, Micro
+    assert len(plan.order) == 5 and plan.hidden
+    assert {s.index for s in window.strips if s.isVisible()} == set(plan.order)
+    assert shown_widgets(window)[-1] is window.master and window.master.isVisible()   # le Master reste à droite
     window._on_music_toggled(False)
     pump(qapp, 0.1)
     assert not session.music_on and session.preset == "standard"
-    assert shown_widgets(window)[-1] is window.master and window._matrix_panel.isVisible()
+    assert len(shown_strips(window)) == len(window.strips) and shown_widgets(window)[-1] is window.master
 
 
 def test_the_music_mode_frees_the_voice_processing_and_gives_it_back(qapp, console):
@@ -131,36 +143,32 @@ def test_the_music_mode_frees_the_voice_processing_and_gives_it_back(qapp, conso
 
 
 # --------------------------------------------------------------------------- #
-# Dispositions
+# Une seule interface : la console, et l'arrangement studio du mode musical
 # --------------------------------------------------------------------------- #
-def test_each_layout_arranges_the_console(qapp, console):
-    window, _, session = console
-    expected = {"standard": ("right", True), "fl_studio": ("left", False),
-                "streaming": ("right", True), "podcast": ("right", False)}
-    for key, (side, matrix) in expected.items():
-        window._apply_change(session.set_layout(key))
-        pump(qapp, 0.1)
-        plan = window._plan
-        assert session.preset == key and plan.master_side == side, key
-        assert window._matrix_panel.isVisible() == matrix, key
-        assert ({s.index for s in window.strips if s.isVisible()}
-                == {p.index for p in plan.strips if p.visible}), key
-        assert (shown_widgets(window)[0] is window.master) == (side == "left"), key
-
-
-def test_the_layouts_style_their_strips(qapp, console):
-    window, _, session = console
-    window._apply_change(session.set_layout("fl_studio"))
-    visible = [window.strips[p.index] for p in window._plan.strips if p.visible]
+def test_the_studio_arrangement_styles_its_strips(qapp, console):
+    window, _, _ = console
+    assert all(s.shows("pad") and not s.shows("wide_pan") and not s.vu.precision
+               for s in window.strips if s.isVisible())
+    window._on_music_toggled(True)
+    pump(qapp, 0.1)
+    visible = shown_strips(window)
     assert visible and all(s.shows("wide_pan") and not s.shows("pad") and s.vu.precision for s in visible)
-    window._apply_change(session.set_layout("podcast"))
-    visible = [window.strips[p.index] for p in window._plan.strips if p.visible]
-    assert visible and all(s.shows("dynamics") and not s.shows("wide_pan") for s in visible)
-    window._apply_change(session.set_layout("standard"))
-    assert all(s.shows("pad") and not s.vu.precision for s in window.strips if s.isVisible())
+    window._on_music_toggled(False)
+    pump(qapp, 0.1)
+    assert all(s.shows("pad") and not s.shows("wide_pan") and not s.vu.precision for s in window.strips)
 
 
-def test_the_settings_choose_the_layout_and_the_followed_software(qapp, console):
+def test_the_studio_strips_are_named_after_their_slot(qapp, console):
+    window, _, _ = console
+    window._on_music_toggled(True)
+    pump(qapp, 0.1)
+    labels = [window._plan.strip(index).label for index in window._plan.order]
+    assert labels == ["Master", "Bus Batterie", "Synths", "FX", "Micro"]
+    assert [s._role.text() for s in shown_strips(window)] == [label.upper() for label in labels]
+    assert all(not s._role.isHidden() for s in shown_strips(window))
+
+
+def test_the_settings_have_no_layout_choice_but_choose_the_followed_software(qapp, console):
     from ui.settings_dialog import SETTINGS_TAB_LAYOUT, SettingsDialog
 
     window, _, session = console
@@ -171,16 +179,14 @@ def test_the_settings_choose_the_layout_and_the_followed_software(qapp, console)
     try:
         tab = dialog.layout_tab
         assert dialog.tabs.tabText(dialog.tabs.currentIndex()) == "Mode et thème"
-        tab.layout_choice.setCurrentIndex(tab.layout_choice.findData("streaming"))
-        assert session.preset == "streaming" and session.layouts.selector_value == "streaming"
-        assert list(tab.role_choices) == ["mic", "game", "discord", "music"]
-        tab.layout_choice.setCurrentIndex(tab.layout_choice.findData("auto"))
-        assert session.layouts.selector_value == "auto" and session.preset == "fl_studio"
+        assert "layout_choice" not in vars(tab) and "follow_software" not in vars(tab)
+        assert list(tab.role_choices) == ["master", "drums", "synths", "fx", "mic"]    # arrangement du mode musical
         tab.app_choice.setCurrentIndex(tab.app_choice.findData("discord"))
-        assert session.active.key == "discord" and session.preset == "streaming"
+        assert session.active.key == "discord" and session.preset == "standard"
         assert not window.action_bar.music_button.isVisible()
         tab.app_choice.setCurrentIndex(tab.app_choice.findData("auto"))
-        assert session.active.key == "fl_studio" and session.preset == "fl_studio"
+        assert session.active.key == "fl_studio" and window.action_bar.music_button.isVisible()
+        assert session.preset == "standard"                    # suivre un logiciel ne réarrange rien
     finally:
         dialog.done(0)
 
@@ -189,19 +195,21 @@ def test_a_slot_can_be_given_to_a_chosen_channel(qapp, console):
     from ui.settings_dialog import SettingsDialog
 
     window, _, session = console
+    window._on_music_toggled(True)
+    pump(qapp, 0.1)
     dialog = SettingsDialog(window._cfg, window._processes, window._reaper, window._vm, window,
                             persist=False, session=session, detector=window._detector,
                             live=window._live_state)
     dialog.sessionChanged.connect(window._apply_change)
     try:
         tab = dialog.layout_tab
-        tab.layout_choice.setCurrentIndex(tab.layout_choice.findData("streaming"))
-        combo = tab.role_choices["game"]
+        combo = tab.role_choices["fx"]
         combo.setCurrentIndex(combo.findData(3))
-        assert session.layouts.explicit_roles("streaming")["game"] == 3
-        assert window._plan.roles["game"] == 3
+        assert session.layouts.explicit_roles("fl_studio")["fx"] == 3
+        assert window._plan.roles["fx"] == 3
+        assert window._cfg["layout"]["roles"]["fl_studio"]["fx"] == 3
         combo.setCurrentIndex(0)                               # « Automatique »
-        assert "game" not in session.layouts.explicit_roles("streaming")
+        assert "fx" not in session.layouts.explicit_roles("fl_studio")
     finally:
         dialog.done(0)
 
@@ -321,15 +329,15 @@ def test_the_standalone_console_has_the_channels_of_the_followed_software(qapp, 
     assert "FL Studio" in vm.profile.name
     follow(qapp, window, "discord")
     assert "Discord" in vm.profile.name and len(window.strips) == len(vm.profile.channels)
-    assert session.preset == "streaming" and not window.action_bar.music_button.isVisible()
+    assert session.preset == "standard" and not window.action_bar.music_button.isVisible()
     follow(qapp, window, "ableton")
-    assert "Ableton" in vm.profile.name and session.preset == "fl_studio"
+    assert "Ableton" in vm.profile.name and session.preset == "standard"   # suivre un logiciel ne réarrange rien
     assert window.action_bar.music_button.isVisible()
 
 
 def test_the_standalone_console_hides_what_belongs_to_voicemeeter(qapp, autonomous):
     window, _, _ = autonomous
-    assert not window.master.tape.isVisible()
+    assert not window.master.eject_all.isVisible()              # « eject » déconnecte des bus : propre à Voicemeeter
     assert all(not strip.shows("routing") for strip in window.strips if strip.isVisible())
     assert all(strip.apps is None for strip in window.strips)   # volumes par application : ceux de Windows
 

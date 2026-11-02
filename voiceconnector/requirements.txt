@@ -12,10 +12,17 @@ psutil>=5.9
 pywin32>=306; sys_platform == "win32"
 # Volume par application (sessions audio Windows / Core Audio)
 pycaw>=20240316; sys_platform == "win32"
-# Synchronisation du mixer de FL Studio (Mode musical) par MIDI virtuel (loopMIDI) : facultative,
-# sans ces deux modules tout le reste fonctionne (le bouton l'indique)
+# Synchronisation du mixer de FL Studio (Mode musical) et fenêtre Studio (télécommande de FL Studio,
+# Cubase… en Mackie Control) par MIDI virtuel (loopMIDI) : facultatives, sans ces deux modules tout le
+# reste fonctionne (le bouton l'indique)
 mido>=1.3; sys_platform == "win32"
 python-rtmidi>=1.5; sys_platform == "win32"
+# Musique en cours dans le Master (pochette, précédent / pause / suivant) :
+# contrôles média de Windows, via Python/WinRT
+winrt-runtime~=3.2.1; sys_platform == "win32"
+winrt-Windows.Foundation~=3.2.1; sys_platform == "win32"
+winrt-Windows.Media.Control~=3.2.1; sys_platform == "win32"
+winrt-Windows.Storage.Streams~=3.2.1; sys_platform == "win32"
 
 # Build de l'exécutable
 pyinstaller>=6.10   # PYINSTALLER_RESET_ENVIRONMENT (redémarrage)

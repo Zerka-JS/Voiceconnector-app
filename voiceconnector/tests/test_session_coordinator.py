@@ -85,13 +85,13 @@ def test_the_checked_state_follows_the_mode():
 # Mode musical : disposition studio, sortie d'office, mémoire
 # --------------------------------------------------------------------------- #
 def test_the_music_mode_switches_to_the_studio_layout_and_back():
-    session = coordinator({"layout": {"preset": lm.STREAMING, "follow_software": False}})
+    session = coordinator()
     session.start(seen("fl_studio"))
-    assert session.preset == lm.STREAMING
+    assert session.preset == lm.STANDARD
     on = session.toggle_music(True)
     assert on.preset_changed and on.music is not None and on.music.changed and session.preset == lm.FL_STUDIO
     off = session.toggle_music(False)
-    assert off.preset_changed and session.preset == lm.STREAMING                # retour à l'ancienne disposition
+    assert off.preset_changed and session.preset == lm.STANDARD                 # retour à la console
 
 
 def test_the_music_mode_is_left_when_the_music_software_goes_away():
@@ -143,32 +143,35 @@ def test_nothing_changes_when_the_detection_is_the_same():
 
 
 # --------------------------------------------------------------------------- #
-# Disposition
+# Disposition : la console, et l'arrangement studio du seul mode musical
 # --------------------------------------------------------------------------- #
-def test_following_the_software_changes_the_layout_in_mode_a_when_asked():
-    session = coordinator({"layout": {"follow_software": True}})
-    session.start(seen("obs"))
-    assert session.preset == lm.STREAMING
-    change = session.on_detected(seen("fl_studio"))
-    assert change.preset_changed and session.preset == lm.FL_STUDIO
+def test_there_is_no_layout_to_choose_any_more():
+    session = coordinator()
+    for removed in ("set_layout", "select_layout"):
+        assert not hasattr(session, removed), removed
+    assert not hasattr(session.layouts, "selector_value")
 
 
-def test_the_layout_is_not_touched_by_detection_when_not_following():
-    session = coordinator()                                                      # mode A : pas de suivi par défaut
+def test_the_layout_is_not_touched_by_the_detection_of_a_software():
+    """Détecter FL Studio ou OBS ne réarrange pas la console : seul le bouton « Mode musical » le fait."""
+    session = coordinator()
     session.start(seen("obs"))
     assert session.preset == lm.STANDARD
-    assert not session.on_detected(seen("fl_studio")).preset_changed
+    change = session.on_detected(seen("fl_studio"))
+    assert change.active_changed and not change.preset_changed and session.preset == lm.STANDARD
+    assert not session.on_detected(seen("discord")).preset_changed
 
 
-def test_the_layout_choice_reports_a_change_only_when_the_layout_changes():
+def test_a_layout_change_is_reported_only_when_the_layout_really_changes():
     session = coordinator()
-    session.start([])
-    assert session.set_layout(lm.PODCAST).preset_changed and session.preset == lm.PODCAST
-    assert not session.set_layout(lm.PODCAST).preset_changed
-    assert session.set_layout(lm.AUTO).preset_changed is False                   # aucun logiciel : reste podcast
-    session.on_detected(seen("obs"))
-    assert session.preset == lm.STREAMING                                        # « auto » suit maintenant OBS
-    assert session.layouts.selector_value == lm.AUTO
+    session.start(seen("discord"))
+    refused = session.toggle_music(True)                                          # pas de logiciel musical
+    assert not refused.preset_changed and session.preset == lm.STANDARD
+    session.on_detected(seen("discord", "fl_studio"))
+    assert session.toggle_music(True).preset_changed and session.preset == lm.FL_STUDIO
+    assert not session.toggle_music(True).preset_changed                          # déjà en mode musical
+    assert session.toggle_music(False).preset_changed and session.preset == lm.STANDARD
+    assert not session.toggle_music(False).preset_changed
 
 
 def test_the_plan_names_the_strips_and_follows_the_music_mode():
@@ -176,11 +179,12 @@ def test_the_plan_names_the_strips_and_follows_the_music_mode():
     session.start(seen("fl_studio"))
     names = [f"Canal {i}" for i in range(8)]
     plan = session.plan(FakeConsole(), names)
-    assert plan.preset == lm.STANDARD and len(plan.groups) == 2 and plan.hidden == ()
+    assert plan.preset == lm.STANDARD and plan.order == tuple(range(8)) and plan.hidden == ()
     session.toggle_music(True)
     plan = session.plan(FakeConsole(), names)
-    assert plan.preset == lm.FL_STUDIO and plan.master_side == "left" and not plan.show_matrix
+    assert plan.preset == lm.FL_STUDIO and plan.order == (5, 6, 7, 1, 0)         # Master, Bus Batterie, Synths, FX, Micro
     assert plan.hidden                                                           # les canaux sans emplacement sont libérés
+    assert [plan.strip(i).label for i in plan.order] == ["Master", "Bus Batterie", "Synths", "FX", "Micro"]
 
 
 def test_strip_infos_keep_the_names_of_the_profile_and_fill_the_others():

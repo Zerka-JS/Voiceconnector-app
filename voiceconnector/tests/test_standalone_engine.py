@@ -107,7 +107,7 @@ def test_capabilities_follow_the_source_of_each_channel():
     assert engine.caps == lm.APP_SESSION_CAPS                      # pas de pan commun à tout le monde
     only_fl, _ = engine_for(fl_track("Master", 0), fl_track("Synths", 2))
     assert only_fl.caps == lm.FL_TRACK_CAPS
-    assert not only_fl.caps.routing and not only_fl.caps.trim and not only_fl.caps.fx
+    assert not only_fl.caps.routing and not only_fl.caps.dynamics and not only_fl.caps.fx
 
 
 def test_strip_infos_keep_the_roles_of_the_profile():
@@ -121,10 +121,13 @@ def test_strip_infos_keep_the_roles_of_the_profile():
 
 def test_a_plan_built_from_the_engine_hides_what_the_sources_cannot_do():
     engine, _ = engine_for(fl_track("Master", 0, "master"), fl_track("Synths", 2, "synths"), MIC)
-    plan = lm.build_plan(lm.LAYOUT_PRESETS["fl_studio"], engine.strip_infos(), caps=engine.caps)
+    plan = lm.build_plan(lm.LAYOUT_PRESETS[lm.FL_STUDIO], engine.strip_infos(), caps=engine.caps)
     assert plan.strip(1).style.pan == lm.PAN_WIDE and not plan.strip(1).style.routing
     assert plan.strip(2).style.pan == lm.PAN_NONE                       # le micro (Windows) : pas de pan
-    assert not plan.show_matrix
+    assert not plan.strip(1).style.dynamics and not plan.strip(2).style.fx
+    assert plan.order == (0, 1, 2) and plan.hidden == ()                # les rôles du profil sont respectés
+    console = lm.build_plan(lm.LAYOUT_PRESETS[lm.STANDARD], engine.strip_infos(), caps=engine.caps)
+    assert not any(s.style.routing or s.style.dynamics for s in console.strips)
 
 
 @pytest.mark.parametrize("source, text", [
@@ -628,8 +631,9 @@ def test_every_automatic_profile_runs_on_the_engine(known):
     params, levels = engine.poll()
     assert len(params.strips) == len(levels.strips) == engine.strip_count
     infos = engine.strip_infos()
-    plan = lm.build_plan(lm.LAYOUT_PRESETS[engine.profile.layout or "standard"], infos, caps=engine.caps)
-    assert sorted(plan.order + tuple(plan.hidden)) == list(range(engine.strip_count))
+    for key in (lm.STANDARD, lm.FL_STUDIO):                     # la console et l'arrangement du mode musical
+        plan = lm.build_plan(lm.LAYOUT_PRESETS[key], infos, caps=engine.caps)
+        assert sorted(plan.order + tuple(plan.hidden)) == list(range(engine.strip_count)), key
 
 
 def test_module_has_no_qt_dependency():

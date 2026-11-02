@@ -284,7 +284,7 @@ def test_intellipan_pad(qapp, mixer):
     pad = window.strips[1].pad                     # Musique : entrée matérielle
     assert pad.modes() == ("color", "pan", "fx") and pad.mode() == "color"
     assert window.strips[2].pad.modes() == ("pan",)   # Appels : entrée virtuelle
-    assert window.strips[1].vu.width() == 20
+    assert window.strips[1].vu.width() == 2 * VU_BAR_WIDTH + VU_GAP
 
     area = pad._area()
     drag(pad, (area.center().x(), area.bottom() - 2), (area.right() - 1, area.top() + 1))

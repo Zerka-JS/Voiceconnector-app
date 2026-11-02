@@ -46,11 +46,6 @@ jobs:
           python main.py --mode b --selftest preview/modeb/console.png 2>&1 | tail -40 || true
           ls -la preview preview/modeb
           cat preview/console.txt || true
-      - name: Diagnostic pytest - où plante la sortie ?
-        continue-on-error: true
-        run: |
-          python -m pip install -q pytest
-          python ../.github/diag/diag_pytest.py
       - name: Publier les captures
         if: always()
         env:

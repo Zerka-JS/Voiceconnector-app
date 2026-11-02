@@ -70,6 +70,7 @@
     "background_darkness": 0.45,
     "panel_opacity": 1.0,
     "theme": "studio",
+    "show_media": true,
     "pad_modes": [],
     "strip_names": ["Microphone", "Musique", "Appels", "Bureau", "Autres 1", "Autres 2"]
   },
@@ -86,7 +87,6 @@
     "detect_interval_s": 3
   },
   "layout": {
-    "preset": "standard",
     "roles": {}
   },
   "flsync": {

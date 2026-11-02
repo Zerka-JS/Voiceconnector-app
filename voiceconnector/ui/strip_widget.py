@@ -1,26 +1,21 @@
 """
-Une tranche de console VoiceConnector (fond crème, façon rack vintage), de
-haut en bas : nom éditable (double-clic), potentiomètre de trim — ou
-Compr. / Gate sur les entrées virtuelles —, effets (REAPER), Intellipan (le
-carré au petit cube rouge de Voicemeeter), icône de source + Solo / Muet (et
-« Apps » : volume par application), fader coloré + VU à LED, routage rapide
-(boutons ronds rétro-éclairés).
+Une tranche de console VoiceConnector : une carte sombre aux coins
+arrondis, de haut en bas : effets (liste de plugins et badge FX), envois vers les bus (quatre
+potentiomètres), Compr. / Gate (quand le moteur les porte), Intellipan (le carré au petit cube
+rouge de Voicemeeter), Solo / Muet (et « Apps » : volume par application), fader avec son VU,
+nom éditable (double-clic).
 
-La tranche ne parle à aucun moteur : elle émet des signaux, la fenêtre
-principale les relaie à Voicemeeter / REAPER, et lui renvoie l'état réel.
+La tranche ne parle à aucun moteur : elle émet des signaux, la fenêtre principale les relaie à
+Voicemeeter / REAPER, et lui renvoie l'état réel.
 
-Les dispositions (Réglages → Mode et thème) changent ce que montre la tranche sans la
-reconstruire : `apply_style(style, libellé)` affiche ou masque le panoramique (carré Intellipan,
-curseur large ou rien), le trim, le compresseur et le gate, l'égaliseur rapide et sa touche
-« Clarté », les effets et le routage, et passe le VU en haute précision. Dans la disposition
-Podcasting, Compr. + Gate remplacent le trim des entrées matérielles (la tranche est trop étroite
-pour les trois). Une commande n'est montrée que si le moteur la porte vraiment : l'égaliseur
-rapide n'apparaît que sur les tranches dont le moteur renvoie ses valeurs.
+Le mode musical change ce que montre la tranche sans la reconstruire : `apply_style(style,
+libellé)` affiche ou masque le panoramique (carré Intellipan, curseur large ou rien), Compr. +
+Gate, les effets et les envois, et passe le VU en haute précision. Une commande n'est montrée que
+si le moteur la porte vraiment (le mode autonome n'a ni envois, ni effets, ni dynamique).
 
 Couleurs (Réglages → Couleurs) : chaque élément dessiné connaît son canal (`color_scope`) et relit
 sa couleur en se redessinant ; `apply_colors()` pose celles qui passent par une feuille de style
-(Muet, Solo, nom, fond). `_build_ui()` construit l'agencement : la disposition « Console »
-(ui/console_strip.py) le remplace par le sien sans toucher à la partie moteur de la tranche.
+(Muet, Solo, nom, fond).
 """
 
 from __future__ import annotations
@@ -34,49 +29,35 @@ from PySide6.QtWidgets import (QAbstractButton, QFrame, QGridLayout, QHBoxLayout
                                QWidget)
 
 from core.layout_manager import PAN_PAD, PAN_WIDE, VU_PRECISION, StripStyle
-from core.mixer_model import CLARITY_EQ, EQ_BANDS, EQ_RANGE_DB, FLAT_EQ
 from core.reaper_ctrl import TrackInfo
 from core.voicemeeter_ctrl import StripParams
 from ui import styles
-from ui.fader import HardwareFader, format_db
+from ui.fader import Fader, format_db
 from ui.fx_pill import PILL_HEIGHT, FxPill
 from ui.intellipan import PAD_HEIGHT, IntelliPad
-from ui.hardware_widgets import SourceIcon
-from ui.knob import DialKnob, RouteButton
-from ui.vu_meter import ClipLed, LedVuMeter
+from ui.knob import DialKnob, Knob
+from ui.vu_meter import ClipLed, VuMeter
 from ui.wide_pan import WidePan
 
-STRIP_WIDTH = 112
-FX_SECTION_HEIGHT = 96
-ROUTING_SECTION_HEIGHT = 92
+STRIP_WIDTH = 133
+FX_SECTION_HEIGHT = 186
+ROUTING_SECTION_HEIGHT = 102
+DYNAMICS_SECTION_HEIGHT = 64
 PAD_SECTION_HEIGHT = PAD_HEIGHT + 8
-VU_BAR_WIDTH, VU_GAP = 6, 2      # VU-mètres des strips (largeur d'une barre, écart)
-MUTE_HEIGHT = 24
+VU_BAR_WIDTH, VU_GAP = 7, 3      # VU-mètres des strips (largeur d'une barre, écart)
+MUTE_HEIGHT = 25
 APPS_BUTTON_WIDTH = 44
-NAME_HEIGHT = 22
+NAME_HEIGHT = 24
 SLOT_PITCH = PILL_HEIGHT + 2
-MIN_SLOTS = 4
-ROUTING_KNOB = 24
-TRIM_KNOB = 46
-SMALL_KNOB = 34
-TRIM_RANGE_DB = 12.0             # trim : -12 … +12 dB
+MIN_SLOTS = 8
+ROUTING_KNOB = 28
+DYNAMICS_KNOB = 28
 COMP_GATE_MAX = 10.0             # Compr. / Gate : 0 … 10 (échelle Voicemeeter)
-EQ_KNOB = 22                     # égaliseur rapide : trois petits potentiomètres
-CLARITY_HEIGHT = 20
-CLARITY_TOLERANCE_DB = 0.15      # écart toléré pour reconnaître le préréglage « Clarté »
-EQ_LABELS = ("Graves", "Méd.", "Aigus")
 
 
 def make_section() -> QFrame:
     frame = QFrame()
     frame.setObjectName("section")
-    return frame
-
-
-def make_bay() -> QFrame:
-    """Encart creusé sur fond crème (grille de routage…)."""
-    frame = QFrame()
-    frame.setObjectName("bay")
     return frame
 
 
@@ -415,81 +396,66 @@ class StripWidget(QFrame):
     padMoved = Signal(int, str, float, float)    # (strip, mode, x, y)
     padModeChanged = Signal(int, str)
     appsRequested = Signal(int)
-    # Nouveautés du design matériel
     soloToggled = Signal(int, bool)
-    trimChanged = Signal(int, float)             # entrées matérielles, dB
-    compChanged = Signal(int, float)             # entrées virtuelles, 0…10
-    gateChanged = Signal(int, float)             # entrées virtuelles, 0…10
-    # Dispositions (Mode et thème) et mode autonome
-    eqChanged = Signal(int, int, float)          # égaliseur rapide : (strip, bande 0…2, dB)
+    compChanged = Signal(int, float)             # compresseur, 0…10
+    gateChanged = Signal(int, float)             # gate, 0…10
     assignRequested = Signal(int)                # mode autonome : assigner une application à la tranche
     unassignRequested = Signal(int)
-
-    # Nom d'objet Qt (feuille de style) et sélecteur du fond de la tranche : la disposition
-    # « Console » (ui/console_strip.py) les remplace par les siens.
-    OBJECT_NAME = "stripPanel"
-    PANEL_SELECTOR = "QFrame#stripPanel"
 
     def __init__(self, index: int, name: str, route_labels: list[str],
                  sends_adjustable: bool = True, pad_modes: tuple[str, ...] = ("color", "pan", "fx"),
                  physical: bool = True, pad_mode: str | None = None, apps_button: bool = False,
-                 accent: str | None = None, route_colors: list[str] | None = None,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.index = index
         self._sends_adjustable = sends_adjustable   # False : Banana, knobs = interrupteurs
         self._physical = physical
-        self._accent = accent or styles.CAP_COLORS[index % len(styles.CAP_COLORS)]
-        self.setObjectName(self.OBJECT_NAME)
+        self.setObjectName("column")
         self._track: TrackInfo | None = None
         self._style = StripStyle()          # la console d'origine ; changé par apply_style()
-        self._eq_known = False              # le moteur renvoie l'égaliseur rapide de cette tranche
         self._present = True
         self._released = False
-        self._build_ui(name, route_labels, pad_modes, pad_mode, apps_button, route_colors)
+        self._build_ui(name, route_labels, pad_modes, pad_mode, apps_button)
         self._refresh_sections()
         self._assign_color_scopes()
         self.apply_colors()
 
     def _build_ui(self, name: str, route_labels: list[str], pad_modes: tuple[str, ...],
-                  pad_mode: str | None, apps_button: bool, route_colors: list[str] | None) -> None:
-        """Agencement de la tranche matérielle (fond crème) : crée tous les widgets que le reste
-        de la classe pilote (name, fader, vu, mute, solo, knobs, pad, fx_list, fx_badge…)."""
+                  pad_mode: str | None, apps_button: bool) -> None:
+        """Agencement de la tranche : crée tous les widgets que le reste de la classe pilote
+        (name, fader, vu, mute, solo, knobs, pad, fx_list, fx_badge, comp, gate…)."""
         self.setFixedWidth(STRIP_WIDTH)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 6, 5, 4)
-        layout.setSpacing(6)
+        layout.setContentsMargins(6, 6, 6, 4)
+        layout.setSpacing(8)
 
-        self._role = QLabel()               # libellé de l'emplacement dans la disposition (« Bus Batterie »)
+        self._role = QLabel()               # libellé de l'emplacement dans l'arrangement studio (« Bus Batterie »)
         self._role.setObjectName("roleLabel")
         self._role.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._role.hide()
         layout.addWidget(self._role)
+
+        self._fx_section = self._build_fx_section()
+        self._routing_section = self._build_routing_section(route_labels)
+        self._dynamics_section = self._build_dynamics_section()
+        self._pan_section = self._build_pan_section(pad_modes, pad_mode)
+        layout.addWidget(self._fx_section)
+        layout.addWidget(self._routing_section)
+        layout.addWidget(self._dynamics_section)
+        layout.addWidget(self._pan_section)
+        layout.addLayout(self._build_switch_row(apps_button))
+        layout.addWidget(self._build_fader_section(), 1)
 
         self.name = EditableLabel(name)
         self.name.setFixedHeight(NAME_HEIGHT)
         self.name.edited.connect(lambda text: self.renamed.emit(self.index, text))
         layout.addWidget(self.name)
 
-        self._input_section = self._build_input_section()
-        self._eq_section = self._build_eq_section()
-        self._fx_section = self._build_fx_section()
-        self._pad_section = self._build_pad_section(pad_modes, self._physical, pad_mode)
-        self._build_wide_pan()
-        self._routing_section = self._build_routing_section(route_labels, route_colors)
-        layout.addWidget(self._input_section)
-        layout.addWidget(self._eq_section)
-        layout.addWidget(self._fx_section)
-        layout.addWidget(self._pad_section)
-        layout.addWidget(self.wide_pan)
-        layout.addLayout(self._build_switch_rows(apps_button))
-        layout.addWidget(self._build_fader_section(), 1)
-        layout.addWidget(self._routing_section)
-
     # -------------------------------------------------------------- couleurs
     def _assign_color_scopes(self) -> None:
         """Chaque élément dessiné connaît son canal : c'est lui qui relit sa couleur à l'écran."""
-        for widget in (self.fader, self.vu, self.fx_badge, self.fx_list, self.pad, self.apps):
+        for widget in (self.fader, self.vu, self.fx_badge, self.fx_list, self.pad, self.apps,
+                       self.comp, self.gate):
             if widget is not None:
                 widget.color_scope = self.index
         for route, knob in enumerate(self.knobs):
@@ -506,15 +472,15 @@ class StripWidget(QFrame):
         scope = self.index
         for button, element, make in ((self.mute, "mute", styles.mute_style),
                                       (self.solo, "solo", styles.solo_style)):
-            if button is not None:
-                chosen = styles.element_color(element, scope)
-                self._set_sheet(button, make(chosen) if chosen else "")
+            chosen = styles.element_color(element, scope)
+            self._set_sheet(button, make(chosen) if chosen else "")
         self.name.set_color(styles.element_color("name", scope))
         panel = styles.element_color("panel", scope)
-        self._set_sheet(self, styles.panel_style(panel, self.PANEL_SELECTOR) if panel else "")
+        self._set_sheet(self, styles.panel_style(panel) if panel else "")
 
     # ------------------------------------------------------------ sections
-    def _labelled(self, widget: QWidget, text: str) -> QVBoxLayout:
+    @staticmethod
+    def _labelled(widget: QWidget, text: str) -> QVBoxLayout:
         cell = QVBoxLayout()
         cell.setSpacing(0)
         cell.addWidget(widget, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -524,71 +490,7 @@ class StripWidget(QFrame):
         cell.addWidget(label)
         return cell
 
-    def _cell(self, widget: QWidget, text: str) -> QWidget:
-        """Un potentiomètre et son libellé, dans un widget qu'on peut masquer d'un coup."""
-        cell = QWidget()
-        box = self._labelled(widget, text)
-        box.setContentsMargins(0, 0, 0, 0)
-        cell.setLayout(box)
-        return cell
-
-    def _build_input_section(self) -> QWidget:
-        """Trim (entrée matérielle), Compr. + Gate (entrée virtuelle, ou toute entrée dans la
-        disposition Podcasting). Tout est construit ; apply_style() montre ce qui convient."""
-        section = QWidget()
-        row = QHBoxLayout(section)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(2)
-        self.trim: DialKnob | None = None
-        self._trim_cell: QWidget | None = None
-        if self._physical:
-            self.trim = DialKnob(-TRIM_RANGE_DB, TRIM_RANGE_DB, 0.0, TRIM_KNOB, accent=self._accent)
-            self.trim.valueChanged.connect(lambda v: self.trimChanged.emit(self.index, v))
-            self._trim_cell = self._cell(self.trim, "TRIM")
-            row.addWidget(self._trim_cell)
-        self.comp = DialKnob(0.0, COMP_GATE_MAX, 0.0, SMALL_KNOB, accent=self._accent, unit="")
-        self.gate = DialKnob(0.0, COMP_GATE_MAX, 0.0, SMALL_KNOB, accent=self._accent, unit="")
-        self.comp.valueChanged.connect(lambda v: self.compChanged.emit(self.index, v))
-        self.gate.valueChanged.connect(lambda v: self.gateChanged.emit(self.index, v))
-        self._comp_cell = self._cell(self.comp, "Compr.")
-        self._gate_cell = self._cell(self.gate, "Gate")
-        row.addWidget(self._comp_cell)
-        row.addWidget(self._gate_cell)
-        return section
-
-    def _build_eq_section(self) -> QWidget:
-        """Égaliseur rapide à trois bandes et touche « Clarté » (disposition Podcasting)."""
-        section = QWidget()
-        box = QVBoxLayout(section)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(3)
-        row = QHBoxLayout()
-        row.setSpacing(0)
-        self.eq_knobs: list[DialKnob] = []
-        for band, label in enumerate(EQ_LABELS):
-            knob = DialKnob(EQ_RANGE_DB[0], EQ_RANGE_DB[1], 0.0, EQ_KNOB, accent=self._accent)
-            knob.setToolTip(f"{EQ_BANDS[band]} : 0.0 dB")
-            knob.valueChanged.connect(lambda db, b=band: self._on_eq_knob(b, db))
-            row.addLayout(self._labelled(knob, label))
-            self.eq_knobs.append(knob)
-        box.addLayout(row)
-        self.clarity = QPushButton("Clarté")
-        self.clarity.setObjectName("clarityButton")
-        self.clarity.setCheckable(True)
-        self.clarity.setFixedHeight(CLARITY_HEIGHT)
-        self.clarity.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.clarity.setToolTip("Clarté de la voix : coupe un peu de graves, ouvre les aigus.\n"
-                                "Un second clic remet l'égaliseur à plat.")
-        self.clarity.clicked.connect(self._on_clarity)
-        box.addWidget(self.clarity)
-        return section
-
-    def _build_wide_pan(self) -> None:
-        self.wide_pan = WidePan()
-        self.wide_pan.moved.connect(self._on_wide_pan)
-
     def _build_fx_section(self) -> QFrame:
-        # Encart sombre (écran) dans la tranche crème : liste d'effets du moteur
         section = make_section()
         section.setFixedHeight(FX_SECTION_HEIGHT)
         box = QVBoxLayout(section)
@@ -626,59 +528,83 @@ class StripWidget(QFrame):
         box.addWidget(scroll, 1)
         return section
 
-    def _build_pad_section(self, modes: tuple[str, ...], physical: bool,
-                           mode: str | None) -> QFrame:
+    def _build_routing_section(self, labels: list[str]) -> QFrame:
+        """Envois vers les bus : un potentiomètre par bus (clic = on/off, glisser = niveau d'envoi)."""
+        section = make_section()
+        section.setFixedHeight(ROUTING_SECTION_HEIGHT)
+        grid = QGridLayout(section)
+        grid.setContentsMargins(4, 6, 4, 4)
+        grid.setHorizontalSpacing(2)
+        grid.setVerticalSpacing(0)
+        self.knobs: list[Knob] = []
+        for route, label_text in enumerate(labels):
+            knob = Knob(diameter=ROUTING_KNOB, checkable=True, adjustable=self._sends_adjustable)
+            knob.toggled.connect(lambda on, r=route: self.routeToggled.emit(self.index, r, on))
+            knob.valueChanged.connect(lambda db, r=route: self.sendChanged.emit(self.index, r, db))
+            grid.addLayout(self._labelled(knob, label_text), route // 2, route % 2)
+            self.knobs.append(knob)
+        return section
+
+    def _build_dynamics_section(self) -> QFrame:
+        """Compr. et Gate (le moteur de Voicemeeter les porte ; le mode autonome non)."""
+        section = make_section()
+        section.setFixedHeight(DYNAMICS_SECTION_HEIGHT)
+        row = QHBoxLayout(section)
+        row.setContentsMargins(4, 5, 4, 3)
+        row.setSpacing(2)
+        self.comp = DialKnob(0.0, COMP_GATE_MAX, 0.0, DYNAMICS_KNOB, unit="")
+        self.gate = DialKnob(0.0, COMP_GATE_MAX, 0.0, DYNAMICS_KNOB, unit="")
+        self.comp.valueChanged.connect(lambda v: self.compChanged.emit(self.index, v))
+        self.gate.valueChanged.connect(lambda v: self.gateChanged.emit(self.index, v))
+        row.addLayout(self._labelled(self.comp, "Compr."))
+        row.addLayout(self._labelled(self.gate, "Gate"))
+        return section
+
+    def _build_pan_section(self, modes: tuple[str, ...], mode: str | None) -> QFrame:
+        """Intellipan (le carré), ou le curseur large de l'arrangement studio : un seul est montré."""
         section = make_section()
         section.setFixedHeight(PAD_SECTION_HEIGHT)
         box = QVBoxLayout(section)
         box.setContentsMargins(4, 4, 4, 4)
-        self.pad = IntelliPad(modes, physical, mode)
+        self.pad = IntelliPad(modes, self._physical, mode)
         self.pad.moved.connect(lambda m, x, y: self.padMoved.emit(self.index, m, x, y))
         self.pad.modeChanged.connect(lambda m: self.padModeChanged.emit(self.index, m))
         box.addWidget(self.pad)
+        self.wide_pan = WidePan()
+        self.wide_pan.moved.connect(self._on_wide_pan)
+        box.addWidget(self.wide_pan, 0, Qt.AlignmentFlag.AlignVCenter)
         return section
 
-    def _build_switch_rows(self, apps_button: bool) -> QVBoxLayout:
-        """Solo / Muet, puis icône de source (+ « Apps » sur les entrées virtuelles)."""
-        rows = QVBoxLayout()
-        rows.setSpacing(4)
-
-        keys = QHBoxLayout()
-        keys.setSpacing(4)
-        self.solo = QPushButton("Solo")
+    def _build_switch_row(self, apps_button: bool) -> QHBoxLayout:
+        """Solo (carré), Muet, et « Apps » (volume par application) sur les entrées qui le permettent."""
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        self.solo = QPushButton("S")
         self.solo.setObjectName("soloButton")
         self.solo.setCheckable(True)
-        self.solo.setFixedHeight(MUTE_HEIGHT)
+        self.solo.setFixedSize(MUTE_HEIGHT, MUTE_HEIGHT)
         self.solo.setCursor(Qt.CursorShape.PointingHandCursor)
         self.solo.setToolTip("Solo : coupe toutes les autres entrées")
         self.solo.toggled.connect(lambda on: self.soloToggled.emit(self.index, on))
+        row.addWidget(self.solo)
         self.mute = QPushButton("Muet")
         self.mute.setObjectName("muteButton")
         self.mute.setCheckable(True)
         self.mute.setFixedHeight(MUTE_HEIGHT)
         self.mute.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mute.toggled.connect(self._on_mute)
-        keys.addWidget(self.solo, 1)
-        keys.addWidget(self.mute, 1)
-        rows.addLayout(keys)
-
-        extra = QHBoxLayout()
-        extra.setSpacing(4)
-        self.source_icon = SourceIcon(self._physical)
-        extra.addWidget(self.source_icon)
-        extra.addStretch(1)
+        row.addWidget(self.mute, 1)
         self.apps: AppsButton | None = None
         if apps_button:
             self.apps = AppsButton()
             self.apps.clicked.connect(lambda: self.appsRequested.emit(self.index))
-            extra.addWidget(self.apps)
-        rows.addLayout(extra)
-        return rows
+            row.addWidget(self.apps)
+        return row
 
-    def _build_fader_section(self) -> QWidget:
-        section = QWidget()
+    def _build_fader_section(self) -> QFrame:
+        section = make_section()
         box = QVBoxLayout(section)
-        box.setContentsMargins(0, 0, 0, 0)
+        box.setContentsMargins(8, 6, 8, 8)
         box.setSpacing(4)
 
         header = QHBoxLayout()
@@ -692,35 +618,16 @@ class StripWidget(QFrame):
         box.addLayout(header)
 
         body = QHBoxLayout()
-        body.setSpacing(4)
+        body.setSpacing(6)
         body.addStretch(1)
-        self.fader = HardwareFader(self._accent)
+        self.fader = Fader()
         self.fader.valueChanged.connect(self._on_fader)
         body.addWidget(self.fader)
-        self.vu = LedVuMeter(channels=2, bar_width=VU_BAR_WIDTH, gap=VU_GAP)
+        self.vu = VuMeter(channels=2, bar_width=VU_BAR_WIDTH, gap=VU_GAP)
         body.addWidget(self.vu)
         body.addStretch(1)
         box.addLayout(body, 1)
         self._show_value(0.0)
-        return section
-
-    def _build_routing_section(self, labels: list[str], colors: list[str] | None) -> QFrame:
-        """Routage rapide : un bouton rond rétro-éclairé par bus (clic = on/off,
-        glisser = niveau d'envoi)."""
-        section = make_bay()
-        section.setFixedHeight(ROUTING_SECTION_HEIGHT)
-        grid = QGridLayout(section)
-        grid.setContentsMargins(3, 4, 3, 3)
-        grid.setHorizontalSpacing(2)
-        grid.setVerticalSpacing(0)
-        self.knobs: list[RouteButton] = []
-        for route, label_text in enumerate(labels):
-            color = colors[route] if colors and route < len(colors) else styles.HW_ORANGE
-            knob = RouteButton(diameter=ROUTING_KNOB, color=color, adjustable=self._sends_adjustable)
-            knob.toggled.connect(lambda on, r=route: self.routeToggled.emit(self.index, r, on))
-            knob.valueChanged.connect(lambda db, r=route: self.sendChanged.emit(self.index, r, db))
-            grid.addLayout(self._labelled(knob, label_text), route // 2, route % 2)
-            self.knobs.append(knob)
         return section
 
     # ---------------------------------------------------- état venant des moteurs
@@ -743,14 +650,6 @@ class StripWidget(QFrame):
             self.wide_pan.set_value(pan[0])
         if params.dynamics is not None:            # les valeurs du moteur priment sur la mémoire de l'interface
             self.set_comp_gate(*params.dynamics)
-        known = params.eq is not None
-        if known != self._eq_known:
-            self._eq_known = known
-            self._refresh_sections()
-        if params.eq is not None:
-            for knob, db in zip(self.eq_knobs, params.eq):
-                knob.setValue(db)
-            self._sync_clarity()
 
     def set_levels(self, levels: tuple[float, float]) -> None:
         self.vu.set_levels(levels)
@@ -771,27 +670,22 @@ class StripWidget(QFrame):
 
     def _refresh_sections(self) -> None:
         style = self._style
-        dynamics = style.dynamics or (not self._physical and style.trim)
-        trim = self._physical and style.trim and not style.dynamics   # Compr. + Gate prennent sa place
-        if self._trim_cell is not None:
-            self._trim_cell.setVisible(trim)
-        self._comp_cell.setVisible(dynamics)
-        self._gate_cell.setVisible(dynamics)
-        self._input_section.setVisible(trim or dynamics)
-        self._eq_section.setVisible(style.eq and self._eq_known)
         self._fx_section.setVisible(style.fx)
-        self._pad_section.setVisible(style.pan == PAN_PAD)
-        self.wide_pan.setVisible(style.pan == PAN_WIDE)
         self._routing_section.setVisible(style.routing)
+        self._dynamics_section.setVisible(style.dynamics)
+        self.pad.setVisible(style.pan == PAN_PAD)
+        self.wide_pan.setVisible(style.pan == PAN_WIDE)
+        self._pan_section.setVisible(style.pan in (PAN_PAD, PAN_WIDE))
 
     def shows(self, section: str) -> bool:
-        """La section est-elle voulue par la disposition ? (« trim », « dynamics », « eq », « fx »,
-        « routing », « pad », « wide_pan »). Sert aux tests : isVisible() dépend de la fenêtre."""
-        widgets = {"trim": self._trim_cell, "dynamics": self._comp_cell, "eq": self._eq_section,
-                   "fx": self._fx_section, "routing": self._routing_section,
-                   "pad": self._pad_section, "wide_pan": self.wide_pan}
+        """La section est-elle voulue par la disposition ? (« dynamics », « fx », « routing »,
+        « pad », « wide_pan »). Sert aux tests : isVisible() dépend de la fenêtre."""
+        widgets = {"dynamics": self._dynamics_section, "fx": self._fx_section,
+                   "routing": self._routing_section, "pad": self.pad, "wide_pan": self.wide_pan}
         widget = widgets[section]
-        return widget is not None and not widget.isHidden()
+        if section in ("pad", "wide_pan"):
+            return not widget.isHidden() and not self._pan_section.isHidden()
+        return not widget.isHidden()
 
     def set_present(self, present: bool, tip: str = "") -> None:
         """Mode autonome : l'application de la tranche n'est pas lancée → tranche grisée."""
@@ -806,6 +700,7 @@ class StripWidget(QFrame):
         """Mode musical : les traitements de voix de la tranche sont libérés (effets en pause)."""
         self._released = bool(released)
         self._fx_section.setEnabled(not self._released)
+        self._dynamics_section.setEnabled(not self._released)
         self.name.setToolTip(tip if self._released and tip
                              else "Double-clic ou clic droit pour renommer")
 
@@ -818,11 +713,7 @@ class StripWidget(QFrame):
                 actions.append(("Retirer l'assignation", lambda: self.unassignRequested.emit(self.index)))
         self.name.set_menu_actions(actions)
 
-    # -- réglages propres au design matériel (mémorisés par la fenêtre principale)
-    def set_trim(self, db: float) -> None:
-        if self.trim is not None:
-            self.trim.setValue(db)
-
+    # -- réglages que le moteur ne renvoie pas toujours (mémorisés par la fenêtre principale)
     def set_comp_gate(self, comp: float | None = None, gate: float | None = None) -> None:
         if comp is not None:
             self.comp.setValue(comp)
@@ -902,28 +793,6 @@ class StripWidget(QFrame):
         self.pad.set_values((("pan", x, y),))
         self.padMoved.emit(self.index, "pan", x, y)
 
-    def _on_eq_knob(self, band: int, db: float) -> None:
-        self.eq_knobs[band].setToolTip(f"{EQ_BANDS[band]} : {db:+.1f} dB")
-        self._sync_clarity()
-        self.eqChanged.emit(self.index, band, db)
-
-    def _on_clarity(self, checked: bool) -> None:
-        target = CLARITY_EQ if checked else FLAT_EQ
-        for band, (knob, db) in enumerate(zip(self.eq_knobs, target)):
-            knob.setValue(db)
-            self.eq_knobs[band].setToolTip(f"{EQ_BANDS[band]} : {db:+.1f} dB")
-            self.eqChanged.emit(self.index, band, db)
-        self._sync_clarity()
-
-    def _sync_clarity(self) -> None:
-        """« Clarté » est allumée tant que l'égaliseur est sur son préréglage."""
-        on = all(abs(knob.value() - target) <= CLARITY_TOLERANCE_DB
-                 for knob, target in zip(self.eq_knobs, CLARITY_EQ))
-        if self.clarity.isChecked() != on:
-            blocked = self.clarity.blockSignals(True)
-            self.clarity.setChecked(on)
-            self.clarity.blockSignals(blocked)
-
     def _on_fader(self, db: float) -> None:
         self._show_value(db)
         self.gainChanged.emit(self.index, db)
@@ -940,4 +809,4 @@ class StripWidget(QFrame):
 
     def _show_value(self, db: float) -> None:
         self.value_label.setText(
-            f"{format_db(db)}<span style='color:{styles.INK_SOFT}; font-size:9px;'> dB</span>")
+            f"{format_db(db)}<span style='color:{styles.TEXT_MUTED}; font-size:9px;'> dB</span>")
