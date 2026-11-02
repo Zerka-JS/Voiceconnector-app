@@ -634,6 +634,7 @@ QPushButton#muteButton {{
     border: 1px solid {BORDER_COLUMN};
     border-radius: {R_BUTTON}px;
     color: {TEXT_PRIMARY};
+    padding: 0;
     font-size: 11px;
     font-weight: 600;
 }}
@@ -656,6 +657,7 @@ QPushButton#soloButton {{
     border: 1px solid {BORDER_COLUMN};
     border-radius: {R_BUTTON}px;
     color: {TEXT_PRIMARY};
+    padding: 0;
     font-size: 11px;
     font-weight: 600;
 }}

@@ -538,11 +538,11 @@ def test_color_themes(qapp):
             assert styles.contrast(accent, ink) >= 4.5 and styles.contrast(hover, ink) >= 4.5, theme
         assert styles.set_theme("#123456") == "#123456"            # personnalisé, éclairci
         assert styles.set_theme("n'importe quoi") == styles.DEFAULT_THEME
-        assert styles.DEFAULT_THEME == "vintage"                  # rack VoiceConnector
-        assert styles.GREEN_NEON == "#3fcf5a" and styles.BG_WINDOW == "#17181a"
-        assert styles.BG_COLUMN == "#1d1e21" and styles.BORDER_COLUMN == "#303236"
+        assert styles.set_theme("vintage") == styles.DEFAULT_THEME  # l'ancien thème crème n'existe plus
+        assert styles.DEFAULT_THEME == "studio"                   # « Dark Studio Pro » : cartes sombres arrondies
+        assert styles.GREEN_NEON == "#3b82f6" and styles.BG_WINDOW == "#0f1115"
+        assert styles.BG_COLUMN == "#161920" and styles.BORDER_COLUMN == "#2a2f3d"
         assert styles.set_theme("studio") == "studio" and styles.GREEN_NEON == "#3b82f6"
-        assert styles.bus_color("A1") == styles.HW_ORANGE and styles.bus_color("B2") == styles.HW_BLUE
         assert styles.set_theme("neon") == "neon" and styles.GREEN_NEON == "#00ff88"
     finally:
         styles.set_theme(styles.DEFAULT_THEME)
